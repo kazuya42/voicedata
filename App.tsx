@@ -172,18 +172,31 @@ export default function App() {
         body: formData,
         headers: {
           'Accept': 'application/json',
-          // Omit Content-Type to let fetch generate the boundary
         },
       });
 
       if (response.ok) {
+        let successMessage = 'Erfolgreich übertragen!';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const jsonResponse = await response.json();
+            const textVal = jsonResponse.text || jsonResponse.transcription;
+            if (textVal) {
+              successMessage = `Transkription:\n"${textVal}"`;
+            }
+          }
+        } catch (jsonErr) {
+          console.log('Response is not JSON or failed to parse', jsonErr);
+        }
+
         setUploadStatus('success');
-        setUploadMessage('Erfolgreich übertragen!');
-        // Automatically clear success message after 4 seconds
+        setUploadMessage(successMessage);
+        // Automatically clear success message after 10 seconds to read the text
         setTimeout(() => {
           setUploadStatus('idle');
           setUploadMessage('');
-        }, 4000);
+        }, 10000);
       } else {
         throw new Error(`HTTP ${response.status}`);
       }
