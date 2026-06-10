@@ -108,6 +108,7 @@ export default function App() {
       }
 
       await recorder.prepareToRecordAsync({
+        ...RecordingPresets.HIGH_QUALITY,
         isMeteringEnabled: true,
       });
       await recorder.record();
