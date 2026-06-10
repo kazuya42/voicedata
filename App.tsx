@@ -34,6 +34,35 @@ import {
 
 const STORAGE_KEY = '@n8n_webhook_url';
 
+// Helper to extract text dynamically from n8n response (handles arrays, nested keys, and arbitrary string fields)
+const extractTextFromResponse = (json: any): string | null => {
+  if (!json) return null;
+  
+  if (Array.isArray(json)) {
+    if (json.length === 0) return null;
+    return extractTextFromResponse(json[0]);
+  }
+  
+  if (typeof json === 'string') {
+    return json;
+  }
+  
+  const commonKeys = ['text', 'transcription', 'message', 'output', 'response', 'content'];
+  for (const key of commonKeys) {
+    const val = json[key];
+    if (val && typeof val === 'string') return val;
+  }
+  
+  // Try to find any property that is a string and has content
+  for (const key of Object.keys(json)) {
+    if (typeof json[key] === 'string' && json[key].trim().length > 0) {
+      return json[key];
+    }
+  }
+  
+  return null;
+};
+
 export default function App() {
   const [webhookUrl, setWebhookUrl] = useState<string>('');
   const [isSettingsVisible, setIsSettingsVisible] = useState<boolean>(false);
@@ -189,7 +218,7 @@ export default function App() {
           const contentType = response.headers.get('content-type');
           if (contentType && contentType.includes('application/json')) {
             const jsonResponse = await response.json();
-            const textVal = jsonResponse.text || jsonResponse.transcription;
+            const textVal = extractTextFromResponse(jsonResponse);
             if (textVal) {
               successMessage = `Transkription:\n"${textVal}"`;
             }
