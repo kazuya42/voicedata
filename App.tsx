@@ -19,6 +19,7 @@ import {
   useAudioRecorder,
   RecordingPresets,
   useAudioRecorderState,
+  setAudioModeAsync,
 } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
@@ -48,10 +49,16 @@ export default function App() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const statusFadeAnim = useRef(new Animated.Value(1)).current;
 
-  // Load saved Webhook URL on start
+  // Load saved Webhook URL and set audio mode on start
   useEffect(() => {
-    async function loadSettings() {
+    async function initApp() {
       try {
+        // Set audio mode to allow recording
+        await setAudioModeAsync({
+          allowsRecording: true,
+          playsInSilentMode: true,
+        });
+
         const savedUrl = await AsyncStorage.getItem(STORAGE_KEY);
         if (savedUrl) {
           setWebhookUrl(savedUrl);
@@ -61,10 +68,10 @@ export default function App() {
           setIsSettingsVisible(true);
         }
       } catch (e) {
-        console.error('Failed to load settings', e);
+        console.error('Failed to initialize app settings/audio', e);
       }
     }
-    loadSettings();
+    initApp();
   }, []);
 
   // Pulse animation when recording
