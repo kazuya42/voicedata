@@ -28,7 +28,9 @@
           "microphonePermission": "Allow voicedata to access your microphone to record audio notes.",
           "recordAudioAndroid": true
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-sqlite"
     ]
   }
 }

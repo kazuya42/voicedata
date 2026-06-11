@@ -11,8 +11,17 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  ScrollView,
+  Linking,
+  Keyboard,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   getRecordingPermissionsAsync,
   requestRecordingPermissionsAsync,
@@ -21,103 +30,105 @@ import {
   useAudioRecorderState,
   setAudioModeAsync,
 } from 'expo-audio';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Mic,
   Square,
   Settings,
   CheckCircle2,
   XCircle,
+  X,
   AlertCircle,
-  Volume2,
+  User,
+  Mail,
+  MapPin,
+  Package,
+  FileText,
 } from 'lucide-react-native';
 
-const STORAGE_KEY = '@n8n_webhook_url';
+import SettingsScreen from './src/screens/SettingsScreen';
+import TranscriptsScreen from './src/screens/TranscriptsScreen';
+import { getCred } from './src/lib/credentials';
+import { transcribeAudio, extractFields } from './src/lib/openai';
+import { shopwarePreview, shopwareConfirmOrder } from './src/lib/shopware';
+import { shopifyPreview, shopifyConfirmOrder } from './src/lib/shopify';
+import { hubspotPreview, hubspotConfirm } from './src/lib/hubspot';
+import { buildCsv, buildEmailText, buildSheetsRow } from './src/lib/localTargets';
+import { searchCatalog } from './src/lib/catalog';
+import { saveTranscript, markTranscriptSent, updateTranscriptFields } from './src/lib/transcripts';
+import {
+  ParsedFields,
+  PreviewData,
+  ShopPreview,
+  HubspotPreview,
+  TextPreview,
+  TargetSystem,
+  Transcript,
+  CatalogProduct,
+  emptyFields,
+} from './src/lib/types';
 
-// Helper to extract text dynamically from n8n response (handles arrays, nested keys, and arbitrary string fields)
-const extractTextFromResponse = (json: any): string | null => {
-  if (!json) return null;
-  
-  if (Array.isArray(json)) {
-    if (json.length === 0) return null;
-    return extractTextFromResponse(json[0]);
-  }
-  
-  if (typeof json === 'string') {
-    return json;
-  }
-  
-  const commonKeys = ['text', 'transcription', 'message', 'output', 'response', 'content'];
-  for (const key of commonKeys) {
-    const val = json[key];
-    if (val && typeof val === 'string') return val;
-  }
-  
-  // Try to find any property that is a string and has content
-  for (const key of Object.keys(json)) {
-    if (typeof json[key] === 'string' && json[key].trim().length > 0) {
-      return json[key];
-    }
-  }
-  
-  return null;
-};
+type Tab = 'record' | 'transcripts' | 'settings';
+
+const TARGETS: { key: TargetSystem; label: string }[] = [
+  { key: 'shopware', label: 'Shopware' },
+  { key: 'shopify', label: 'Shopify' },
+  { key: 'hubspot', label: 'HubSpot' },
+  { key: 'email', label: 'E-Mail' },
+  { key: 'google_sheets', label: 'Sheets' },
+  { key: 'csv', label: 'CSV' },
+];
+
+const WEB_BLOCKED_TARGETS: TargetSystem[] = ['shopware', 'shopify', 'hubspot'];
 
 export default function App() {
-  const [webhookUrl, setWebhookUrl] = useState<string>('');
-  const [isSettingsVisible, setIsSettingsVisible] = useState<boolean>(false);
-  const [tempUrl, setTempUrl] = useState<string>('');
+  const [tab, setTab] = useState<Tab>('record');
   const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [uploadMessage, setUploadMessage] = useState<string>('');
+  const [targetSystem, setTargetSystem] = useState<TargetSystem>('shopware');
+  const [previewData, setPreviewData] = useState<PreviewData | null>(null);
+  const [waveform, setWaveform] = useState<number[]>(Array(30).fill(5));
+  const [isEditingFields, setIsEditingFields] = useState<boolean>(false);
+  const [transcriptsRefreshKey, setTranscriptsRefreshKey] = useState<number>(0);
+  const [currentTranscriptId, setCurrentTranscriptId] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<CatalogProduct[]>([]);
 
-  // Audio Recorder setup
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const recorderState = useAudioRecorderState(recorder, 100); // Poll status every 100ms
+  // Bearbeitbare Felder
+  const [editCustName, setEditCustName] = useState<string>('');
+  const [editCustEmail, setEditCustEmail] = useState<string>('');
+  const [editCustStreet, setEditCustStreet] = useState<string>('');
+  const [editCustZip, setEditCustZip] = useState<string>('');
+  const [editCustCity, setEditCustCity] = useState<string>('');
+  const [editProdName, setEditProdName] = useState<string>('');
+  const [editProdNumber, setEditProdNumber] = useState<string>('');
+  const [editProdQty, setEditProdQty] = useState<string>('1');
+  const [editDelivName, setEditDelivName] = useState<string>('');
+  const [editDelivStreet, setEditDelivStreet] = useState<string>('');
+  const [editDelivZip, setEditDelivZip] = useState<string>('');
+  const [editDelivCity, setEditDelivCity] = useState<string>('');
 
-  // Animations
+  const rotateAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const statusFadeAnim = useRef(new Animated.Value(1)).current;
 
-  // Load saved Webhook URL and set audio mode on start
+  // Audio Recorder
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(recorder, 100);
+
   useEffect(() => {
-    async function initApp() {
-      try {
-        // Set audio mode to allow recording
-        await setAudioModeAsync({
-          allowsRecording: true,
-          playsInSilentMode: true,
-        });
-
-        const savedUrl = await AsyncStorage.getItem(STORAGE_KEY);
-        if (savedUrl) {
-          setWebhookUrl(savedUrl);
-          setTempUrl(savedUrl);
-        } else {
-          // Open settings if no URL is saved yet
-          setIsSettingsVisible(true);
-        }
-      } catch (e) {
-        console.error('Failed to initialize app settings/audio', e);
-      }
-    }
-    initApp();
+    setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true }).catch((e) =>
+      console.error('Audio mode failed', e)
+    );
   }, []);
 
   // Pulse animation when recording
   useEffect(() => {
     if (recorderState.isRecording) {
       Animated.loop(
+        Animated.timing(rotateAnim, { toValue: 1, duration: 3000, useNativeDriver: true })
+      ).start();
+      Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.15,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1.0,
-            duration: 800,
-            useNativeDriver: true,
-          }),
+          Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1.0, duration: 800, useNativeDriver: true }),
         ])
       ).start();
     } else {
@@ -125,9 +136,57 @@ export default function App() {
     }
   }, [recorderState.isRecording]);
 
-  // Request Permissions & Start Recording
+  // Waveform
+  useEffect(() => {
+    if (recorderState.isRecording) {
+      const db = recorderState.metering ?? -160;
+      const clamped = Math.max(-60, Math.min(0, db));
+      const height = 5 + ((clamped + 60) / 60) * 35;
+      setWaveform((prev) => [...prev.slice(1), height]);
+    } else {
+      setWaveform(Array(30).fill(5));
+    }
+  }, [recorderState.metering, recorderState.isRecording]);
+
+  const getFields = (): ParsedFields => ({
+    customerName: editCustName,
+    customerEmail: editCustEmail,
+    customerStreet: editCustStreet,
+    customerZip: editCustZip,
+    customerCity: editCustCity,
+    productName: editProdName,
+    productNumber: editProdNumber,
+    quantity: Math.max(1, parseInt(editProdQty, 10) || 1),
+    deliveryName: editDelivName,
+    deliveryStreet: editDelivStreet,
+    deliveryZip: editDelivZip,
+    deliveryCity: editDelivCity,
+  });
+
+  const setFields = (f: ParsedFields) => {
+    setEditCustName(f.customerName || '');
+    setEditCustEmail(f.customerEmail || '');
+    setEditCustStreet(f.customerStreet || '');
+    setEditCustZip(f.customerZip || '');
+    setEditCustCity(f.customerCity || '');
+    setEditProdName(f.productName || '');
+    setEditProdNumber(f.productNumber || '');
+    setEditProdQty(f.quantity ? String(f.quantity) : '1');
+    setEditDelivName(f.deliveryName || '');
+    setEditDelivStreet(f.deliveryStreet || '');
+    setEditDelivZip(f.deliveryZip || '');
+    setEditDelivCity(f.deliveryCity || '');
+  };
+
+  // Aufnahme starten
   const startRecording = async () => {
     try {
+      const openaiKey = await getCred('openaiKey');
+      if (!openaiKey) {
+        Alert.alert('OpenAI-Key fehlt', 'Bitte trage zuerst den OpenAI-API-Key in den Einstellungen ein.');
+        setTab('settings');
+        return;
+      }
       setUploadStatus('idle');
       setUploadMessage('');
 
@@ -135,18 +194,11 @@ export default function App() {
       if (currentStatus !== 'granted') {
         const { status } = await requestRecordingPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert(
-            'Berechtigung erforderlich',
-            'Der Zugriff auf das Mikrofon wurde verweigert. Bitte aktiviere ihn in den Geräteeinstellungen.'
-          );
+          Alert.alert('Berechtigung erforderlich', 'Der Zugriff auf das Mikrofon wurde verweigert. Bitte aktiviere ihn in den Geräteeinstellungen.');
           return;
         }
       }
-
-      await recorder.prepareToRecordAsync({
-        ...RecordingPresets.HIGH_QUALITY,
-        isMeteringEnabled: true,
-      });
+      await recorder.prepareToRecordAsync({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
       await recorder.record();
     } catch (err) {
       console.error('Failed to start recording', err);
@@ -154,129 +206,251 @@ export default function App() {
     }
   };
 
-  // Stop Recording & Upload
+  // Aufnahme stoppen → transkribieren → Felder extrahieren → lokal speichern
   const stopRecording = async () => {
     try {
       await recorder.stop();
       const uri = recorder.uri;
-
-      if (!uri) {
-        throw new Error('Kein Aufnahmepfad gefunden.');
-      }
-
-      if (!webhookUrl) {
-        Alert.alert('Fehler', 'Bitte konfiguriere zuerst die Webhook-URL in den Einstellungen.');
-        setIsSettingsVisible(true);
-        return;
-      }
-
-      await uploadAudio(uri);
-    } catch (err) {
+      if (!uri) throw new Error('Kein Aufnahmepfad gefunden.');
+      await processRecording(uri);
+    } catch (err: any) {
       console.error('Failed to stop recording', err);
       setUploadStatus('error');
-      setUploadMessage('Aufnahme gestoppt, aber Speichern fehlgeschlagen.');
+      setUploadMessage('Aufnahme gestoppt, aber Verarbeitung fehlgeschlagen: ' + (err?.message || ''));
     }
   };
 
-  // Upload Logic
-  const uploadAudio = async (uri: string) => {
-    setUploadStatus('uploading');
-    setUploadMessage('Übertrage Audio an n8n...');
-
+  const processRecording = async (uri: string) => {
+    const openaiKey = await getCred('openaiKey');
+    if (!openaiKey) {
+      Alert.alert('OpenAI-Key fehlt', 'Bitte trage den OpenAI-API-Key in den Einstellungen ein.');
+      setTab('settings');
+      return;
+    }
     try {
-      const formData = new FormData();
+      setUploadStatus('uploading');
+      setUploadMessage('Transkribiere Aufnahme (Whisper)…');
+      const text = await transcribeAudio(uri, openaiKey);
 
-      if (Platform.OS === 'web') {
-        // Web-specific file handling
-        const blobResponse = await fetch(uri);
-        const blob = await blobResponse.blob();
-        formData.append('file', blob, 'audio_recording.webm');
-      } else {
-        // Native mobile file handling
-        formData.append('file', {
-          uri: uri,
-          name: 'audio_recording.m4a',
-          type: 'audio/m4a',
-        } as any);
-      }
+      setUploadMessage('Extrahiere Bestelldaten (GPT)…');
+      const fields = await extractFields(text, openaiKey);
 
-      formData.append('recorded_at', new Date().toISOString());
-      formData.append('platform', Platform.OS);
+      const transcript = await saveTranscript(text, fields);
+      setCurrentTranscriptId(transcript.id);
+      setTranscriptsRefreshKey((k) => k + 1);
 
-      // Perform POST Request
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        let successMessage = 'Erfolgreich übertragen!';
-        try {
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-            const jsonResponse = await response.json();
-            const textVal = extractTextFromResponse(jsonResponse);
-            if (textVal) {
-              successMessage = `Transkription:\n"${textVal}"`;
-            }
-          }
-        } catch (jsonErr) {
-          console.log('Response is not JSON or failed to parse', jsonErr);
-        }
-
-        setUploadStatus('success');
-        setUploadMessage(successMessage);
-        // Automatically clear success message after 10 seconds to read the text
-        setTimeout(() => {
-          setUploadStatus('idle');
-          setUploadMessage('');
-        }, 10000);
-      } else {
-        throw new Error(`HTTP ${response.status}`);
-      }
-    } catch (error: any) {
-      console.error('Upload error', error);
+      setFields(fields);
+      setUploadStatus('idle');
+      setIsEditingFields(true);
+    } catch (err: any) {
+      console.error('Processing error', err);
       setUploadStatus('error');
-      setUploadMessage(`Fehler beim Senden: ${error.message || 'Verbindungsfehler'}`);
+      setUploadMessage(`Fehler bei der Verarbeitung: ${err?.message || 'Verbindungsfehler'}`);
     }
   };
 
-  // Save Settings
-  const saveSettings = async () => {
-    let formattedUrl = tempUrl.trim();
-    if (!formattedUrl) {
-      Alert.alert('Ungültige URL', 'Bitte gib eine gültige Webhook-URL ein.');
+  // Transkript aus der Liste laden
+  const loadTranscript = (t: Transcript) => {
+    setFields(t.fields);
+    setCurrentTranscriptId(t.id);
+    setTab('record');
+    setUploadStatus('idle');
+    setUploadMessage('');
+    setIsEditingFields(true);
+  };
+
+  // Stage 2: Felder verarbeiten → Vorschau für das gewählte Ziel
+  const processFields = async () => {
+    const fields = getFields();
+    if (currentTranscriptId) updateTranscriptFields(currentTranscriptId, fields).catch(() => {});
+
+    if (Platform.OS === 'web' && WEB_BLOCKED_TARGETS.includes(targetSystem)) {
+      Alert.alert('Nur in der Mobil-App', 'Shopware, Shopify und HubSpot sind im Browser wegen CORS nicht nutzbar. Bitte die App auf dem Handy verwenden.');
       return;
     }
 
-    // Basic URL validation
-    if (!formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
-      Alert.alert('Ungültige URL', 'Die URL muss mit http:// oder https:// beginnen.');
-      return;
-    }
-
+    setUploadStatus('uploading');
+    setUploadMessage('Erstelle Vorschau…');
     try {
-      await AsyncStorage.setItem(STORAGE_KEY, formattedUrl);
-      setWebhookUrl(formattedUrl);
-      setIsSettingsVisible(false);
-      
-      // Notify if user uses localhost on a physical device
-      if (Platform.OS !== 'web' && (formattedUrl.includes('localhost') || formattedUrl.includes('127.0.0.1'))) {
-        Alert.alert(
-          'Hinweis',
-          'Du verwendest "localhost". Wenn du die App auf einem echten Handy testest, verwende stattdessen die lokale IP-Adresse deines PCs (z.B. http://192.168.x.x:5678).'
-        );
+      let preview: PreviewData;
+      if (targetSystem === 'shopware') {
+        const [url, clientId, clientSecret] = await Promise.all([
+          getCred('shopwareUrl'),
+          getCred('shopwareClientId'),
+          getCred('shopwareClientSecret'),
+        ]);
+        if (!url || !clientId || !clientSecret) throw new Error('Shopware-Zugangsdaten fehlen (Einstellungen).');
+        preview = await shopwarePreview(fields, { url, clientId, clientSecret });
+      } else if (targetSystem === 'shopify') {
+        const [domain, token] = await Promise.all([getCred('shopifyDomain'), getCred('shopifyToken')]);
+        if (!domain || !token) throw new Error('Shopify-Zugangsdaten fehlen (Einstellungen).');
+        preview = await shopifyPreview(fields, { domain, token });
+      } else if (targetSystem === 'hubspot') {
+        const token = await getCred('hubspotToken');
+        if (!token) throw new Error('HubSpot-Token fehlt (Einstellungen).');
+        preview = await hubspotPreview(fields, { token });
+      } else if (targetSystem === 'csv') {
+        preview = buildCsv(fields);
+      } else if (targetSystem === 'email') {
+        preview = buildEmailText(fields);
+      } else {
+        preview = buildSheetsRow(fields, await getCred('googleSheetId'));
       }
-    } catch (e) {
-      console.error('Failed to save URL', e);
-      Alert.alert('Fehler', 'Die URL konnte nicht gespeichert werden.');
+      setUploadStatus('idle');
+      setIsEditingFields(false);
+      setSuggestions([]);
+      setPreviewData(preview);
+    } catch (err: any) {
+      console.error('Preview error', err);
+      setUploadStatus('error');
+      setUploadMessage(`Fehler bei der Verarbeitung: ${err?.message || 'Verbindungsfehler'}`);
     }
   };
 
-  // Helper to format duration (ms -> MM:SS)
+  // Stage 3: Bestätigen (Shop-Bestellung bzw. HubSpot-Übertragung)
+  const confirmShopOrder = async () => {
+    if (!previewData) return;
+    const type = previewData.type;
+    const fields = getFields();
+    setPreviewData(null);
+    setUploadStatus('uploading');
+    setUploadMessage(type === 'hubspot_preview' ? 'Übertrage an HubSpot…' : 'Bestellung wird angelegt…');
+    try {
+      let successMessage = '';
+      if (type === 'shopware_preview') {
+        const [url, clientId, clientSecret] = await Promise.all([
+          getCred('shopwareUrl'),
+          getCred('shopwareClientId'),
+          getCred('shopwareClientSecret'),
+        ]);
+        const result = await shopwareConfirmOrder(fields, { url, clientId, clientSecret });
+        successMessage = `Bestellung ${result.orderNumber} erfolgreich in Shopware angelegt (${result.total.toFixed(2)} €).`;
+      } else if (type === 'shopify_preview') {
+        const [domain, token] = await Promise.all([getCred('shopifyDomain'), getCred('shopifyToken')]);
+        const result = await shopifyConfirmOrder(fields, { domain, token });
+        successMessage = `Bestellung ${result.orderNumber} erfolgreich in Shopify angelegt (${result.total.toFixed(2)}).`;
+      } else if (type === 'hubspot_preview') {
+        const token = await getCred('hubspotToken');
+        const hp = previewData as HubspotPreview;
+        const result = await hubspotConfirm(fields, { token }, hp.amount);
+        successMessage = `HubSpot: Kontakt ${result.contactWasCreated ? 'angelegt' : 'aktualisiert'} und Deal „${result.dealName}" erstellt.`;
+      } else {
+        return;
+      }
+      setUploadStatus('success');
+      // Felder bleiben absichtlich erhalten, damit dieselben Daten an weitere Ziele gesendet werden können
+      setUploadMessage(successMessage);
+      if (currentTranscriptId) {
+        await markTranscriptSent(currentTranscriptId, targetSystem, successMessage);
+        setTranscriptsRefreshKey((k) => k + 1);
+      }
+    } catch (err: any) {
+      setUploadStatus('error');
+      setUploadMessage('Fehler bei der Übertragung: ' + (err?.message || 'Verbindungsfehler'));
+    }
+  };
+
+  // Helper: Vorschau schließen, ggf. zurück ins Edit-Modal
+  const closePreview = () => {
+    setPreviewData(null);
+    if (editCustName || editProdName) setIsEditingFields(true);
+  };
+
+  // E-Mail-App öffnen
+  const openEmailApp = (emailBody: string) => {
+    const url = `mailto:?subject=${encodeURIComponent('Voicememo Bestellung')}&body=${encodeURIComponent(emailBody)}`;
+    Linking.openURL(url).catch(() => {
+      Alert.alert('Fehler', 'E-Mail-App konnte nicht geöffnet werden. Bitte kopiere den Text manuell.');
+    });
+    closePreview();
+    if (currentTranscriptId) {
+      markTranscriptSent(currentTranscriptId, 'email', 'E-Mail-Entwurf geöffnet').then(() =>
+        setTranscriptsRefreshKey((k) => k + 1)
+      );
+    }
+  };
+
+  const copyToClipboard = async (text: string) => {
+    if (!text) return;
+    try {
+      await Clipboard.setStringAsync(text);
+      Alert.alert('Kopiert', 'Die Daten wurden in die Zwischenablage kopiert.');
+    } catch {
+      Alert.alert('Fehler', 'Kopieren in die Zwischenablage fehlgeschlagen.');
+    }
+  };
+
+  // CSV als Datei exportieren (Share-Sheet auf Mobile, Download im Web)
+  const downloadCsv = async (csv: string) => {
+    if (!csv) return;
+    try {
+      if (Platform.OS === 'web') {
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'voicedata_export.csv';
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      const fileUri = FileSystem.cacheDirectory + 'voicedata_export.csv';
+      await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: 'CSV speichern oder teilen',
+          UTI: 'public.comma-separated-values-text',
+        });
+      } else {
+        await Clipboard.setStringAsync(csv);
+        Alert.alert('Teilen nicht verfügbar', 'Die CSV-Daten wurden stattdessen in die Zwischenablage kopiert.');
+      }
+    } catch (err) {
+      console.error('CSV export failed', err);
+      Alert.alert('Fehler', 'CSV-Export fehlgeschlagen.');
+    }
+  };
+
+  // Sheets: Zeile kopieren + Sheet öffnen
+  const openGoogleSheet = async (rowData: string, sheetUrl?: string) => {
+    const url = sheetUrl || '';
+    if (!url) {
+      Alert.alert('Keine Sheet-ID', 'Bitte hinterlege die Google Sheet ID in den Einstellungen.');
+      return;
+    }
+    try {
+      if (rowData) await Clipboard.setStringAsync(rowData);
+      Alert.alert(
+        'Zeile kopiert',
+        'Die Daten liegen tab-getrennt in der Zwischenablage. Im Sheet eine Zelle auswählen und einfügen – die Werte verteilen sich automatisch auf die Spalten.',
+        [
+          { text: 'Abbrechen', style: 'cancel' },
+          { text: 'Sheet öffnen', onPress: () => Linking.openURL(url).catch(() => Alert.alert('Fehler', 'Sheet konnte nicht geöffnet werden.')) },
+        ]
+      );
+    } catch {
+      Alert.alert('Fehler', 'Übertragung vorbereiten fehlgeschlagen.');
+    }
+  };
+
+  // Produkt-Autocomplete aus dem lokalen Katalog
+  const onProductInput = (text: string, kind: 'number' | 'name') => {
+    if (kind === 'number') setEditProdNumber(text);
+    else setEditProdName(text);
+    if (targetSystem === 'shopware' || targetSystem === 'shopify') {
+      setSuggestions(text.trim().length >= 2 ? searchCatalog(targetSystem, text) : []);
+    } else {
+      setSuggestions([]);
+    }
+  };
+
+  const applySuggestion = (p: CatalogProduct) => {
+    setEditProdNumber(p.number);
+    setEditProdName(p.name);
+    setSuggestions([]);
+  };
+
   const formatDuration = (millis: number) => {
     const totalSeconds = Math.floor(millis / 1000);
     const minutes = Math.floor(totalSeconds / 60);
@@ -284,197 +458,616 @@ export default function App() {
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   };
 
-  // Map audio metering to scales for visual feedback
   const getMeteringScale = () => {
     if (!recorderState.isRecording) return 1;
     const db = recorderState.metering ?? -160;
     const clampedDb = Math.max(-60, Math.min(0, db));
-    // scale from 1.0 to 1.4 based on volume
     return 1 + ((clampedDb + 60) / 60) * 0.4;
   };
-
   const volumeScale = getMeteringScale();
+
+  const shopPreview = previewData && (previewData.type === 'shopware_preview' || previewData.type === 'shopify_preview')
+    ? (previewData as ShopPreview)
+    : null;
+  const hubspotPrev = previewData?.type === 'hubspot_preview' ? (previewData as HubspotPreview) : null;
+  const textPreview = previewData && ['csv', 'email', 'google_sheets'].includes(previewData.type)
+    ? (previewData as TextPreview)
+    : null;
+
+  const renderStatusCard = (extraStyle?: object) =>
+    uploadStatus !== 'idle' && (
+      <View
+        style={[
+          styles.statusCard,
+          uploadStatus === 'success' && styles.statusCardSuccess,
+          uploadStatus === 'error' && styles.statusCardError,
+          extraStyle,
+        ]}
+      >
+        {uploadStatus === 'uploading' && <ActivityIndicator size="small" color="#6366F1" style={styles.statusCardIcon} />}
+        {uploadStatus === 'success' && <CheckCircle2 size={20} color="#10B981" style={styles.statusCardIcon} />}
+        {uploadStatus === 'error' && <XCircle size={20} color="#EF4444" style={styles.statusCardIcon} />}
+        <Text
+          style={[
+            styles.statusCardText,
+            uploadStatus === 'success' && styles.statusCardTextSuccess,
+            uploadStatus === 'error' && styles.statusCardTextError,
+          ]}
+        >
+          {uploadMessage}
+        </Text>
+        {uploadStatus !== 'uploading' && (
+          <TouchableOpacity
+            onPress={() => {
+              setUploadStatus('idle');
+              setUploadMessage('');
+            }}
+            style={{ marginLeft: 10, padding: 4 }}
+          >
+            <X size={18} color={uploadStatus === 'success' ? '#A7F3D0' : '#FCA5A5'} />
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+
+  const renderTargetSelector = (disabled: boolean) => (
+    <View style={styles.targetSelectorContainer}>
+      <Text style={styles.targetSelectorLabel}>Zielsystem:</Text>
+      <View style={styles.targetGrid}>
+        {TARGETS.map((t) => (
+          <TouchableOpacity
+            key={t.key}
+            style={[styles.targetBtn, targetSystem === t.key && styles.targetBtnActive]}
+            onPress={() => {
+              setTargetSystem(t.key);
+              setSuggestions([]);
+            }}
+            disabled={disabled}
+          >
+            <Text style={[styles.targetBtnText, targetSystem === t.key && styles.targetBtnTextActive]}>{t.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
-      
+
       {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>VoiceData</Text>
-          <Text style={styles.headerSubtitle}>Instant Voice to n8n Webhook</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.settingsButton}
-          onPress={() => {
-            setTempUrl(webhookUrl);
-            setIsSettingsVisible(true);
-          }}
-        >
-          <Settings size={22} color="#94A3B8" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Main Container */}
-      <View style={styles.container}>
-        
-        {/* Visualizer Status */}
-        <View style={styles.statusContainer}>
-          {recorderState.isRecording ? (
-            <View style={styles.recordingLabelContainer}>
-              <View style={styles.recordingDot} />
-              <Text style={styles.recordingText}>AUFNAHME LÄUFT</Text>
-            </View>
-          ) : (
-            <Text style={styles.idleText}>Bereit zur Aufnahme</Text>
-          )}
-        </View>
-
-        {/* Timer */}
-        <Text style={[styles.timer, recorderState.isRecording && styles.timerActive]}>
-          {formatDuration(recorderState.durationMillis)}
-        </Text>
-
-        {/* Record/Stop Button Area */}
-        <View style={styles.buttonOuterContainer}>
-          {/* Animated Glow Rings depending on volume level */}
-          {recorderState.isRecording && (
-            <Animated.View
-              style={[
-                styles.glowRing,
-                {
-                  transform: [{ scale: volumeScale }],
-                  opacity: 0.35,
-                },
-              ]}
-            />
-          )}
-
-          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              style={[
-                styles.recordButton,
-                recorderState.isRecording ? styles.recordButtonActive : styles.recordButtonIdle,
-              ]}
-              onPress={recorderState.isRecording ? stopRecording : startRecording}
-            >
-              {recorderState.isRecording ? (
-                <Square size={36} color="#FFFFFF" fill="#FFFFFF" />
-              ) : (
-                <Mic size={38} color="#FFFFFF" />
-              )}
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
-
-        {/* Volume Level Meter Bar */}
-        {recorderState.isRecording && (
-          <View style={styles.volumeMeterContainer}>
-            <Volume2 size={16} color="#EF4444" style={styles.volumeIcon} />
-            <View style={styles.volumeTrack}>
-              <Animated.View 
-                style={[
-                  styles.volumeFill, 
-                  { 
-                    width: `${Math.max(5, Math.min(100, ((recorderState.metering ?? -160) + 160) / 1.6))}%` 
-                  }
-                ]} 
-              />
-            </View>
-          </View>
-        )}
-
-        {/* Upload Status Card */}
-        {uploadStatus !== 'idle' && (
-          <View
-            style={[
-              styles.statusCard,
-              uploadStatus === 'success' && styles.statusCardSuccess,
-              uploadStatus === 'error' && styles.statusCardError,
-            ]}
-          >
-            {uploadStatus === 'uploading' && (
-              <ActivityIndicator size="small" color="#6366F1" style={styles.statusCardIcon} />
-            )}
-            {uploadStatus === 'success' && (
-              <CheckCircle2 size={20} color="#10B981" style={styles.statusCardIcon} />
-            )}
-            {uploadStatus === 'error' && (
-              <XCircle size={20} color="#EF4444" style={styles.statusCardIcon} />
-            )}
-            <Text
-              style={[
-                styles.statusCardText,
-                uploadStatus === 'success' && styles.statusCardTextSuccess,
-                uploadStatus === 'error' && styles.statusCardTextError,
-              ]}
-            >
-              {uploadMessage}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {/* Footer Info */}
-      <View style={styles.footer}>
-        <View style={styles.serverInfoCard}>
-          <Text style={styles.serverInfoLabel}>Aktivierter Webhook:</Text>
-          <Text style={styles.serverInfoValue} numberOfLines={1}>
-            {webhookUrl || 'Nicht eingerichtet (Zahnrad oben rechts tippen)'}
+          <Text style={styles.headerSubtitle}>
+            {tab === 'record' && 'Sprache → Bestellung, direkt vom Gerät'}
+            {tab === 'transcripts' && 'Gespeicherte Transkripte'}
+            {tab === 'settings' && 'Verbindungen & Zugangsdaten'}
           </Text>
         </View>
       </View>
 
-      {/* Settings Modal */}
-      <Modal
-        visible={isSettingsVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setIsSettingsVisible(false)}
-      >
+      {/* Inhalt je Tab */}
+      {tab === 'settings' && <SettingsScreen />}
+      {tab === 'transcripts' && (
+        <TranscriptsScreen refreshKey={transcriptsRefreshKey} onLoadTranscript={loadTranscript} />
+      )}
+      {tab === 'record' && (
+        <View style={styles.container}>
+          <View style={styles.statusContainer}>
+            {recorderState.isRecording ? (
+              <View style={styles.recordingLabelContainer}>
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingText}>AUFNAHME LÄUFT</Text>
+              </View>
+            ) : (
+              <Text style={styles.idleText}>Bereit zur Aufnahme</Text>
+            )}
+          </View>
+
+          {!recorderState.isRecording && renderTargetSelector(false)}
+
+          <Text style={[styles.timer, recorderState.isRecording && styles.timerActive]}>
+            {formatDuration(recorderState.durationMillis)}
+          </Text>
+
+          <View style={styles.buttonOuterContainer}>
+            {recorderState.isRecording && (
+              <Animated.View style={[styles.siriContainer, { transform: [{ scale: volumeScale }] }]}>
+                <Animated.View style={[styles.siriGlow, styles.siriBlue, { transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]}>
+                  <LinearGradient colors={['#3B82F6', 'transparent']} style={StyleSheet.absoluteFill} />
+                </Animated.View>
+                <Animated.View style={[styles.siriGlow, styles.siriPurple, { transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] }) }] }]}>
+                  <LinearGradient colors={['#8B5CF6', 'transparent']} style={StyleSheet.absoluteFill} />
+                </Animated.View>
+                <Animated.View style={[styles.siriGlow, styles.siriPink, { transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '720deg'] }) }] }]}>
+                  <LinearGradient colors={['#EC4899', 'transparent']} style={StyleSheet.absoluteFill} />
+                </Animated.View>
+              </Animated.View>
+            )}
+
+            <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={[
+                  styles.recordButton,
+                  recorderState.isRecording ? styles.recordButtonActive : styles.recordButtonIdle,
+                  uploadStatus === 'uploading' && { opacity: 0.5 },
+                ]}
+                onPress={recorderState.isRecording ? stopRecording : startRecording}
+                disabled={uploadStatus === 'uploading'}
+              >
+                {recorderState.isRecording ? (
+                  <Square size={36} color="#FFFFFF" fill="#FFFFFF" />
+                ) : (
+                  <Mic size={38} color="#FFFFFF" />
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
+
+          {recorderState.isRecording && (
+            <View style={styles.waveformContainer}>
+              {waveform.map((h, i) => (
+                <Animated.View key={i} style={[styles.waveformBar, { height: h, opacity: 0.3 + (i / 30) * 0.7 }]} />
+              ))}
+            </View>
+          )}
+
+          {!recorderState.isRecording && (editCustName || editProdName) && (
+            <TouchableOpacity style={styles.reopenEditButton} onPress={() => setIsEditingFields(true)}>
+              <Settings size={16} color="#6366F1" style={{ marginRight: 8 }} />
+              <Text style={styles.reopenEditButtonText}>Erfasste Daten bearbeiten</Text>
+            </TouchableOpacity>
+          )}
+
+          {renderStatusCard()}
+        </View>
+      )}
+
+      {/* Tab-Bar */}
+      <View style={styles.tabBar}>
+        {(
+          [
+            { key: 'record' as Tab, label: 'Aufnahme', Icon: Mic },
+            { key: 'transcripts' as Tab, label: 'Transkripte', Icon: FileText },
+            { key: 'settings' as Tab, label: 'Einstellungen', Icon: Settings },
+          ]
+        ).map(({ key, label, Icon }) => (
+          <TouchableOpacity key={key} style={styles.tabItem} onPress={() => setTab(key)}>
+            <Icon size={20} color={tab === key ? '#6366F1' : '#64748B'} />
+            <Text style={[styles.tabLabel, tab === key && styles.tabLabelActive]}>{label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Edit Fields Modal */}
+      <Modal visible={isEditingFields} animationType="slide" transparent={true} onRequestClose={() => setIsEditingFields(false)}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalBackdrop}>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%' }}>
+              <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                <View style={[styles.modalContainer, { maxHeight: '90%' }]}>
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>Erfasste Daten prüfen</Text>
+                  </View>
+
+                  <ScrollView style={{ maxHeight: '70%' }} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+                    <View style={[styles.targetSelectorContainer, { marginBottom: 16, marginTop: 4 }]}>
+                      <Text style={styles.targetSelectorLabel}>Zielsystem für Verarbeitung:</Text>
+                      <View style={styles.targetGrid}>
+                        {TARGETS.map((t) => (
+                          <TouchableOpacity
+                            key={t.key}
+                            style={[styles.targetBtn, targetSystem === t.key && styles.targetBtnActive]}
+                            onPress={() => {
+                              setTargetSystem(t.key);
+                              setSuggestions([]);
+                            }}
+                            disabled={uploadStatus === 'uploading'}
+                          >
+                            <Text style={[styles.targetBtnText, targetSystem === t.key && styles.targetBtnTextActive]}>{t.label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+
+                    <Text style={[styles.inputLabel, { color: '#6366F1' }]}>KUNDE & RECHNUNGSANSCHRIFT</Text>
+
+                    <Text style={[styles.inputLabel, { marginTop: 8 }]}>Kunde / Name</Text>
+                    <View style={styles.inputWithIconContainer}>
+                      <User size={18} color="#94A3B8" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.textInputWithIcon}
+                        value={editCustName}
+                        onChangeText={setEditCustName}
+                        placeholder="Name des Kunden"
+                        placeholderTextColor="#64748B"
+                        editable={uploadStatus !== 'uploading'}
+                      />
+                    </View>
+
+                    <Text style={[styles.inputLabel, { marginTop: 14 }]}>E-Mail-Adresse</Text>
+                    <View style={styles.inputWithIconContainer}>
+                      <Mail size={18} color="#94A3B8" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.textInputWithIcon}
+                        value={editCustEmail}
+                        onChangeText={setEditCustEmail}
+                        placeholder="kunden@email.de"
+                        placeholderTextColor="#64748B"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        editable={uploadStatus !== 'uploading'}
+                      />
+                    </View>
+
+                    <Text style={[styles.inputLabel, { marginTop: 14 }]}>Straße & Hausnummer</Text>
+                    <View style={styles.inputWithIconContainer}>
+                      <MapPin size={18} color="#94A3B8" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.textInputWithIcon}
+                        value={editCustStreet}
+                        onChangeText={setEditCustStreet}
+                        placeholder="Musterstraße 12"
+                        placeholderTextColor="#64748B"
+                        editable={uploadStatus !== 'uploading'}
+                      />
+                    </View>
+
+                    <View style={styles.rowInputs}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={[styles.inputLabel, { marginTop: 14 }]}>PLZ</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={editCustZip}
+                          onChangeText={setEditCustZip}
+                          placeholder="12345"
+                          placeholderTextColor="#64748B"
+                          keyboardType="number-pad"
+                          editable={uploadStatus !== 'uploading'}
+                        />
+                      </View>
+                      <View style={{ flex: 2 }}>
+                        <Text style={[styles.inputLabel, { marginTop: 14 }]}>Ort</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={editCustCity}
+                          onChangeText={setEditCustCity}
+                          placeholder="Musterstadt"
+                          placeholderTextColor="#64748B"
+                          editable={uploadStatus !== 'uploading'}
+                        />
+                      </View>
+                    </View>
+
+                    <Text style={[styles.inputLabel, { marginTop: 22, color: '#6366F1' }]}>
+                      LIEFERANSCHRIFT (optional – leer = wie Rechnungsanschrift)
+                    </Text>
+
+                    <Text style={[styles.inputLabel, { marginTop: 8 }]}>Empfänger</Text>
+                    <View style={styles.inputWithIconContainer}>
+                      <User size={18} color="#94A3B8" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.textInputWithIcon}
+                        value={editDelivName}
+                        onChangeText={setEditDelivName}
+                        placeholder="Abweichender Empfänger"
+                        placeholderTextColor="#64748B"
+                        editable={uploadStatus !== 'uploading'}
+                      />
+                    </View>
+
+                    <Text style={[styles.inputLabel, { marginTop: 14 }]}>Straße & Hausnummer (Lieferung)</Text>
+                    <View style={styles.inputWithIconContainer}>
+                      <MapPin size={18} color="#94A3B8" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.textInputWithIcon}
+                        value={editDelivStreet}
+                        onChangeText={setEditDelivStreet}
+                        placeholder="Lieferstraße 1"
+                        placeholderTextColor="#64748B"
+                        editable={uploadStatus !== 'uploading'}
+                      />
+                    </View>
+
+                    <View style={styles.rowInputs}>
+                      <View style={{ flex: 1, marginRight: 8 }}>
+                        <Text style={[styles.inputLabel, { marginTop: 14 }]}>PLZ (Lieferung)</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={editDelivZip}
+                          onChangeText={setEditDelivZip}
+                          placeholder="12345"
+                          placeholderTextColor="#64748B"
+                          keyboardType="number-pad"
+                          editable={uploadStatus !== 'uploading'}
+                        />
+                      </View>
+                      <View style={{ flex: 2 }}>
+                        <Text style={[styles.inputLabel, { marginTop: 14 }]}>Ort (Lieferung)</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={editDelivCity}
+                          onChangeText={setEditDelivCity}
+                          placeholder="Lieferort"
+                          placeholderTextColor="#64748B"
+                          editable={uploadStatus !== 'uploading'}
+                        />
+                      </View>
+                    </View>
+
+                    <Text style={[styles.inputLabel, { marginTop: 22, color: '#6366F1' }]}>PRODUKT</Text>
+
+                    <Text style={[styles.inputLabel, { marginTop: 8 }]}>Produktname</Text>
+                    <View style={styles.inputWithIconContainer}>
+                      <Package size={18} color="#94A3B8" style={styles.inputIcon} />
+                      <TextInput
+                        style={styles.textInputWithIcon}
+                        value={editProdName}
+                        onChangeText={(t) => onProductInput(t, 'name')}
+                        placeholder="Produktname"
+                        placeholderTextColor="#64748B"
+                        editable={uploadStatus !== 'uploading'}
+                      />
+                    </View>
+
+                    <View style={styles.rowInputs}>
+                      <View style={{ flex: 2, marginRight: 8 }}>
+                        <Text style={[styles.inputLabel, { marginTop: 14 }]}>Produkt / Artikelnummer</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={editProdNumber}
+                          onChangeText={(t) => onProductInput(t, 'number')}
+                          placeholder="z.B. SW10001"
+                          placeholderTextColor="#64748B"
+                          autoCapitalize="none"
+                          editable={uploadStatus !== 'uploading'}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.inputLabel, { marginTop: 14 }]}>Menge</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={editProdQty}
+                          onChangeText={setEditProdQty}
+                          placeholder="1"
+                          placeholderTextColor="#64748B"
+                          keyboardType="number-pad"
+                          editable={uploadStatus !== 'uploading'}
+                        />
+                      </View>
+                    </View>
+
+                    {/* Autocomplete aus dem lokalen Katalog */}
+                    {suggestions.length > 0 && (
+                      <View style={styles.suggestionsBox}>
+                        {suggestions.map((s) => (
+                          <TouchableOpacity key={`${s.shop}-${s.externalId}`} style={styles.suggestionRow} onPress={() => applySuggestion(s)}>
+                            <Text style={styles.suggestionNumber}>{s.number}</Text>
+                            <Text style={styles.suggestionName} numberOfLines={1}>
+                              {s.name}
+                            </Text>
+                            <Text style={styles.suggestionPrice}>{s.priceGross ? `${s.priceGross.toFixed(2)} €` : ''}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </ScrollView>
+
+                  {renderStatusCard({ marginTop: 0, marginBottom: 12 })}
+
+                  <View style={[styles.modalFooter, { marginTop: 12 }]}>
+                    <TouchableOpacity
+                      style={[styles.modalButton, styles.modalButtonCancel]}
+                      onPress={() => {
+                        setIsEditingFields(false);
+                        setSuggestions([]);
+                        if (uploadStatus === 'success') {
+                          setUploadStatus('idle');
+                          setUploadMessage('');
+                        }
+                      }}
+                      disabled={uploadStatus === 'uploading'}
+                    >
+                      <Text style={styles.modalButtonCancelText}>Fertig</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.modalButton, styles.modalButtonSave, uploadStatus === 'uploading' && { opacity: 0.6 }]}
+                      onPress={processFields}
+                      disabled={uploadStatus === 'uploading'}
+                    >
+                      {uploadStatus === 'uploading' ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.modalButtonSaveText}>Verarbeiten</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </KeyboardAvoidingView>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Universal Preview Modal */}
+      <Modal visible={!!previewData} animationType="fade" transparent={true} onRequestClose={closePreview}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Verbindung einrichten</Text>
+              <Text style={styles.modalTitle}>
+                {previewData?.type === 'shopware_preview' && 'Vorschau: Shopware Bestellung'}
+                {previewData?.type === 'shopify_preview' && 'Vorschau: Shopify Bestellung'}
+                {previewData?.type === 'hubspot_preview' && 'Vorschau: HubSpot Kontakt + Deal'}
+                {previewData?.type === 'csv' && 'Vorschau: CSV Export'}
+                {previewData?.type === 'email' && 'Vorschau: E-Mail Entwurf'}
+                {previewData?.type === 'google_sheets' && 'Vorschau: Google Sheets Zeile'}
+              </Text>
             </View>
 
             <View style={styles.modalBody}>
-              <Text style={styles.inputLabel}>n8n Webhook URL</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="https://n8n.domain.com/webhook/..."
-                placeholderTextColor="#64748B"
-                value={tempUrl}
-                onChangeText={setTempUrl}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-              />
-              
-              <View style={styles.warningContainer}>
-                <AlertCircle size={16} color="#F59E0B" style={styles.warningIcon} />
-                <Text style={styles.warningText}>
-                  Verwende für Tests auf dem echten Gerät die LAN-IP deines PCs (z.B. 192.168.x.x) statt "localhost".
-                </Text>
-              </View>
+              {shopPreview && (
+                <>
+                  <View style={styles.previewSection}>
+                    <Text style={styles.previewSectionTitle}>KUNDE & ANSCHRIFT</Text>
+                    <View style={styles.previewRow}>
+                      <Text style={styles.previewText}>{shopPreview.customer.name || 'Unbekannt'}</Text>
+                      {shopPreview.customer.isNew && (
+                        <View style={styles.badgeContainer}>
+                          <Text style={styles.badgeText}>NEU</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.previewSubtext}>{shopPreview.customer.email}</Text>
+                    {(shopPreview.customer.street || shopPreview.customer.city) ? (
+                      <Text style={[styles.previewSubtext, { marginTop: 6, color: '#94A3B8' }]}>
+                        {shopPreview.customer.street}
+                        {shopPreview.customer.zip || shopPreview.customer.city ? '\n' : ''}
+                        {shopPreview.customer.zip} {shopPreview.customer.city}
+                      </Text>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.previewSection}>
+                    <Text style={styles.previewSectionTitle}>LIEFERANSCHRIFT</Text>
+                    {shopPreview.delivery.differs ? (
+                      <>
+                        <Text style={styles.previewText}>{shopPreview.delivery.name || shopPreview.customer.name}</Text>
+                        <Text style={[styles.previewSubtext, { color: '#94A3B8' }]}>
+                          {shopPreview.delivery.street || shopPreview.customer.street}
+                          {'\n'}
+                          {shopPreview.delivery.zip || shopPreview.customer.zip} {shopPreview.delivery.city || shopPreview.customer.city}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={styles.previewSubtext}>Wie Rechnungsanschrift</Text>
+                    )}
+                  </View>
+
+                  <View style={styles.previewSection}>
+                    <Text style={styles.previewSectionTitle}>PRODUKT (Warenkorb)</Text>
+                    <Text style={styles.previewText}>
+                      {shopPreview.product.quantity || 1}x {shopPreview.product.name || 'Unbekannt'}
+                    </Text>
+                    {!!shopPreview.product.number && (
+                      <Text style={styles.previewSubtext}>
+                        Art-Nr: {shopPreview.product.number}
+                        {shopPreview.product.priceGross ? ` · ${shopPreview.product.priceGross.toFixed(2)} €` : ''}
+                      </Text>
+                    )}
+                    {shopPreview.product.found === false && (
+                      <View style={[styles.warningContainer, { marginTop: 8 }]}>
+                        <AlertCircle size={16} color="#F59E0B" style={styles.warningIcon} />
+                        <Text style={styles.warningText}>Produkt im Shop nicht gefunden! Bitte Schreibweise prüfen.</Text>
+                      </View>
+                    )}
+                  </View>
+                </>
+              )}
+
+              {hubspotPrev && (
+                <>
+                  <View style={styles.previewSection}>
+                    <Text style={styles.previewSectionTitle}>KONTAKT</Text>
+                    <View style={styles.previewRow}>
+                      <Text style={styles.previewText}>{hubspotPrev.contact.name || 'Unbekannt'}</Text>
+                      {hubspotPrev.contact.isNew && (
+                        <View style={styles.badgeContainer}>
+                          <Text style={styles.badgeText}>NEU</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.previewSubtext}>{hubspotPrev.contact.email}</Text>
+                  </View>
+                  <View style={styles.previewSection}>
+                    <Text style={styles.previewSectionTitle}>DEAL</Text>
+                    <Text style={styles.previewText}>{hubspotPrev.dealName}</Text>
+                    <Text style={styles.previewSubtext}>Wird mit dem Kontakt verknüpft (Standard-Pipeline).</Text>
+                  </View>
+                </>
+              )}
+
+              {textPreview?.type === 'csv' && (
+                <View style={styles.previewSection}>
+                  <Text style={styles.previewSectionTitle}>CSV INHALT</Text>
+                  <ScrollView style={styles.csvScroll} contentContainerStyle={styles.csvContainer} horizontal={true}>
+                    <Text selectable={true} style={styles.codeText}>{textPreview.data}</Text>
+                  </ScrollView>
+                </View>
+              )}
+
+              {textPreview?.type === 'email' && (
+                <View style={styles.previewSection}>
+                  <Text style={styles.previewSectionTitle}>E-MAIL TEXT</Text>
+                  <ScrollView style={styles.textScroll} contentContainerStyle={styles.textContainer}>
+                    <Text selectable={true} style={styles.previewText}>{textPreview.data}</Text>
+                  </ScrollView>
+                </View>
+              )}
+
+              {textPreview?.type === 'google_sheets' && (
+                <View style={styles.previewSection}>
+                  <Text style={styles.previewSectionTitle}>SPREADSHEET-ZEILE (TAB-GETRENNT)</Text>
+                  <ScrollView style={styles.textScroll} contentContainerStyle={styles.textContainer}>
+                    <Text selectable={true} style={styles.previewText}>{textPreview.data}</Text>
+                  </ScrollView>
+                </View>
+              )}
             </View>
 
             <View style={styles.modalFooter}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonCancel]}
-                onPress={() => setIsSettingsVisible(false)}
-              >
-                <Text style={styles.modalButtonCancelText}>Abbrechen</Text>
+              <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={closePreview}>
+                <Text style={styles.modalButtonCancelText}>
+                  {shopPreview || hubspotPrev ? 'Abbrechen' : 'Schließen'}
+                </Text>
               </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonSave]}
-                onPress={saveSettings}
-              >
-                <Text style={styles.modalButtonSaveText}>Speichern</Text>
-              </TouchableOpacity>
+
+              {shopPreview && (
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonSave, shopPreview.product.found === false && { opacity: 0.5 }]}
+                  onPress={confirmShopOrder}
+                  disabled={shopPreview.product.found === false}
+                >
+                  <Text style={styles.modalButtonSaveText}>Bestellen</Text>
+                </TouchableOpacity>
+              )}
+
+              {hubspotPrev && (
+                <TouchableOpacity style={[styles.modalButton, styles.modalButtonSave]} onPress={confirmShopOrder}>
+                  <Text style={styles.modalButtonSaveText}>Übertragen</Text>
+                </TouchableOpacity>
+              )}
+
+              {textPreview?.type === 'email' && (
+                <TouchableOpacity style={[styles.modalButton, styles.modalButtonSave]} onPress={() => openEmailApp(textPreview.data)}>
+                  <Text style={styles.modalButtonSaveText}>Mail App öffnen</Text>
+                </TouchableOpacity>
+              )}
+
+              {textPreview?.type === 'csv' && (
+                <>
+                  <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => copyToClipboard(textPreview.data)}>
+                    <Text style={styles.modalButtonCancelText}>Kopieren</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.modalButton, styles.modalButtonSave]} onPress={() => downloadCsv(textPreview.data)}>
+                    <Text style={styles.modalButtonSaveText}>Download</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {textPreview?.type === 'google_sheets' && (
+                <>
+                  <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => copyToClipboard(textPreview.data)}>
+                    <Text style={styles.modalButtonCancelText}>Kopieren</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.modalButton, styles.modalButtonSave]} onPress={() => openGoogleSheet(textPreview.data, textPreview.sheetUrl)}>
+                    <Text style={styles.modalButtonSaveText}>Sheet öffnen</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           </View>
         </View>
@@ -484,9 +1077,40 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  siriContainer: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  siriGlow: {
+    position: 'absolute',
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    opacity: 0.6,
+  },
+  siriBlue: { top: 10, left: 10 },
+  siriPurple: { bottom: 10, right: 10 },
+  siriPink: { top: 20, right: 20 },
+  waveformContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 50,
+    marginTop: 40,
+    width: '100%',
+    gap: 4,
+  },
+  waveformBar: {
+    width: 4,
+    backgroundColor: '#6366F1',
+    borderRadius: 2,
+  },
   safeArea: {
     flex: 1,
-    backgroundColor: '#0F172A', // Obsidian/Midnight Slate
+    backgroundColor: '#0F172A',
   },
   header: {
     flexDirection: 'row',
@@ -508,13 +1132,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#94A3B8',
     marginTop: 2,
-  },
-  settingsButton: {
-    padding: 10,
-    borderRadius: 12,
-    backgroundColor: '#1E293B',
-    borderWidth: 1,
-    borderColor: '#334155',
   },
   container: {
     flex: 1,
@@ -556,11 +1173,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   timer: {
-    fontSize: 72,
+    fontSize: 64,
     fontWeight: '300',
     color: '#E2E8F0',
     fontVariant: ['tabular-nums'],
-    marginBottom: 48,
+    marginBottom: 36,
   },
   timerActive: {
     color: '#FFFFFF',
@@ -572,17 +1189,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-  },
-  glowRing: {
-    position: 'absolute',
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-    backgroundColor: '#EF4444',
-    shadowColor: '#EF4444',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 20,
   },
   recordButton: {
     width: 120,
@@ -597,45 +1203,18 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   recordButtonIdle: {
-    backgroundColor: '#6366F1', // Premium Indigo
+    backgroundColor: '#6366F1',
     shadowColor: '#6366F1',
     shadowOpacity: 0.4,
     shadowRadius: 15,
   },
   recordButtonActive: {
-    backgroundColor: '#EF4444', // Crimson Red
-  },
-  volumeMeterContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '70%',
-    height: 24,
-    marginTop: 40,
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  volumeIcon: {
-    marginRight: 8,
-  },
-  volumeTrack: {
-    flex: 1,
-    height: 6,
-    backgroundColor: '#334155',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  volumeFill: {
-    height: '100%',
     backgroundColor: '#EF4444',
-    borderRadius: 3,
   },
   statusCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E293B',
+    backgroundColor: 'rgba(30, 41, 59, 0.7)',
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 16,
@@ -671,29 +1250,26 @@ const styles = StyleSheet.create({
   statusCardTextError: {
     color: '#FCA5A5',
   },
-  footer: {
-    paddingHorizontal: 24,
-    paddingBottom: 24,
+  tabBar: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#1E293B',
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+    paddingBottom: Platform.OS === 'ios' ? 20 : 8,
+    paddingTop: 8,
   },
-  serverInfoCard: {
-    backgroundColor: '#1E293B',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#334155',
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 3,
   },
-  serverInfoLabel: {
+  tabLabel: {
     fontSize: 11,
-    fontWeight: '700',
     color: '#64748B',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    fontWeight: '600',
   },
-  serverInfoValue: {
-    fontSize: 13,
-    color: '#E2E8F0',
-    marginTop: 4,
-    fontWeight: '500',
+  tabLabelActive: {
+    color: '#6366F1',
   },
   modalBackdrop: {
     flex: 1,
@@ -783,5 +1359,187 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '600',
+  },
+  targetSelectorContainer: {
+    marginBottom: 24,
+    alignItems: 'center',
+    width: '100%',
+  },
+  targetSelectorLabel: {
+    color: '#94A3B8',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  targetGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(30, 41, 59, 0.7)',
+    borderRadius: 12,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: '#334155',
+    gap: 2,
+  },
+  targetBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+  },
+  targetBtnActive: {
+    backgroundColor: '#334155',
+  },
+  targetBtnText: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  targetBtnTextActive: {
+    color: '#F8FAFC',
+  },
+  previewSection: {
+    backgroundColor: '#0F172A',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    marginBottom: 16,
+  },
+  previewSectionTitle: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  previewText: {
+    color: '#F8FAFC',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  previewSubtext: {
+    color: '#64748B',
+    fontSize: 13,
+  },
+  badgeContainer: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  badgeText: {
+    color: '#10B981',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  csvScroll: {
+    maxHeight: 250,
+  },
+  csvContainer: {
+    padding: 12,
+    backgroundColor: '#1E293B',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  codeText: {
+    fontFamily: Platform.OS === 'ios' ? 'Courier New' : 'monospace',
+    color: '#38BDF8',
+    fontSize: 13,
+  },
+  textScroll: {
+    maxHeight: 250,
+  },
+  textContainer: {
+    padding: 12,
+    backgroundColor: '#1E293B',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  inputWithIconContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    marginBottom: 4,
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  textInputWithIcon: {
+    flex: 1,
+    paddingVertical: 14,
+    color: '#F8FAFC',
+    fontSize: 15,
+  },
+  rowInputs: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 4,
+  },
+  reopenEditButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.3)',
+    marginTop: 20,
+  },
+  reopenEditButtonText: {
+    color: '#6366F1',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  suggestionsBox: {
+    marginTop: 10,
+    backgroundColor: '#0F172A',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.4)',
+    overflow: 'hidden',
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E293B',
+  },
+  suggestionNumber: {
+    color: '#A5B4FC',
+    fontSize: 12,
+    fontWeight: '700',
+    marginRight: 10,
+    minWidth: 80,
+  },
+  suggestionName: {
+    flex: 1,
+    color: '#E2E8F0',
+    fontSize: 13,
+  },
+  suggestionPrice: {
+    color: '#64748B',
+    fontSize: 12,
+    marginLeft: 8,
   },
 });

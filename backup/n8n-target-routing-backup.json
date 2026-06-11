@@ -1,0 +1,2200 @@
+{
+  "updatedAt": "2026-06-10T23:17:06.991Z",
+  "createdAt": "2026-06-10T07:01:28.785Z",
+  "id": "axwQOajsacMpQeyr",
+  "name": "Target Routing & Shopware Order",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voicedata",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-transcribe",
+      "name": "Webhook (Transcribe)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        150
+      ],
+      "webhookId": "56926af1-907d-4589-bb2a-e6417cd1fab2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ENTFERNT_OPENAI_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formData",
+              "name": "model",
+              "value": "whisper-1"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "file"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "whisper",
+      "name": "Whisper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        220,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer ENTFERNT_OPENAI_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"response_format\": {\n    \"type\": \"json_object\"\n  },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Du bist ein präziser Extraktions-Assistent für Voicememos. Gib AUSNAHMSLOS nur gültiges JSON zurück:\\n{\\n  \\\"customerName\\\": \\\"Max Mustermann\\\",\\n  \\\"customerEmail\\\": \\\"max.mustermann@gmx.de\\\",\\n  \\\"customerStreet\\\": \\\"Hauptstraße 12\\\",\\n  \\\"customerZip\\\": \\\"12345\\\",\\n  \\\"customerCity\\\": \\\"Musterstadt\\\",\\n  \\\"productName\\\": \\\"Schrauben\\\",\\n  \\\"productNumber\\\": \\\"SW10001\\\",\\n  \\\"quantity\\\": 1,\\n  \\\"deliveryName\\\": \\\"\\\",\\n  \\\"deliveryStreet\\\": \\\"\\\",\\n  \\\"deliveryZip\\\": \\\"\\\",\\n  \\\"deliveryCity\\\": \\\"\\\"\\n}\\n\\nREGELN FÜR E-MAILS:\\n1. Analysiere den Text sorgfältig auf gesprochene/buchstabierte E-Mails. Diese werden oft mit 'at' oder 'klammeraffe' für '@' und 'punkt' für '.' gesprochen (z.B. 'in at iljanarowska.de' -> 'in@iljanarowska.de', 'info klammeraffe gmx punkt de' -> 'info@gmx.de'). Rekonstruiere diese gesprochene E-Mail exakt!\\n2. Benutze NIEMALS die Endung '@dummy.com', wenn im Voicememo eine E-Mail-Adresse gesprochen oder buchstabiert wird.\\n3. Nur wenn im gesamten Voicememo absolut KEINE E-Mail vorkommt, generiere eine Dummy-E-Mail im Format 'vorname.nachname@dummy.com' basierend auf dem Namen.\\n4. Wenn Strasse, PLZ oder Ort fehlen, lasse diese Felder leer (\\\"\\\").\\n5. Nur wenn im Voicememo eine ABWEICHENDE Lieferadresse genannt wird (z.B. \\\"liefern an\\\", \\\"Lieferadresse ist\\\"), fülle deliveryName/deliveryStreet/deliveryZip/deliveryCity. Sonst lasse diese vier Felder leer (\\\"\\\").\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.text }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "gpt",
+      "name": "GPT-4o (Extract)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        440,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"success\",\n  \"type\": \"extracted_fields\",\n  \"data\": {{ $json.choices[0].message.content }}\n}",
+        "options": {}
+      },
+      "id": "transcribe-respond",
+      "name": "Respond Transcribe",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voicedata-process",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-process",
+      "name": "Webhook (Process)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        450
+      ],
+      "webhookId": "b94d1c8e-da38-4175-a210-02f078767712"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || {};\nconst parsed = body.parsed || {};\nconst target = body.target || 'csv';\nconst google_sheet_id = body.google_sheet_id || '';\nreturn [{ json: { parsed, target, google_sheet_id } }];"
+      },
+      "id": "set-data",
+      "name": "Set Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.target }}",
+                    "rightValue": "shopware",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Shopware"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.target }}",
+                    "rightValue": "email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Email"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.target }}",
+                    "rightValue": "google_sheets",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Google"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.target }}",
+                    "rightValue": "csv",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "CSV"
+            }
+          ]
+        },
+        "fallbackOutput": "none",
+        "options": {}
+      },
+      "id": "switch",
+      "name": "Switch Target",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.1,
+      "position": [
+        440,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $input.first().json.parsed;\nconst esc = (v) => '\"' + String(v ?? '').replace(/\"/g, '\"\"') + '\"';\nconst row = [parsed.customerName, parsed.customerEmail, parsed.customerStreet || '', parsed.customerZip || '', parsed.customerCity || '', parsed.productName, parsed.quantity || 1, parsed.deliveryName || '', parsed.deliveryStreet || '', parsed.deliveryZip || '', parsed.deliveryCity || ''].map(esc).join(',');\nconst csv = 'Kunde,Email,Strasse,PLZ,Ort,Produkt,Menge,LieferEmpfaenger,LieferStrasse,LieferPLZ,LieferOrt\\n' + row;\nreturn [{ json: { status: 'success', type: 'csv', data: csv } }];"
+      },
+      "id": "csv-build",
+      "name": "CSV erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        750
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "csv-respond",
+      "name": "Respond CSV",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        980,
+        750
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $input.first().json.parsed;\nlet text = 'Kunde: ' + parsed.customerName + '\\nEmail: ' + parsed.customerEmail + '\\nAnschrift: ' + (parsed.customerStreet || '') + ', ' + (parsed.customerZip || '') + ' ' + (parsed.customerCity || '');\nif (parsed.deliveryName || parsed.deliveryStreet || parsed.deliveryCity) {\n  text += '\\nLieferanschrift: ' + (parsed.deliveryName || parsed.customerName) + ', ' + (parsed.deliveryStreet || '') + ', ' + (parsed.deliveryZip || '') + ' ' + (parsed.deliveryCity || '');\n} else {\n  text += '\\nLieferanschrift: wie Rechnungsanschrift';\n}\ntext += '\\nProdukt: ' + parsed.productName + '\\nMenge: ' + (parsed.quantity || 1);\nreturn [{ json: { status: 'success', type: 'email', data: text } }];"
+      },
+      "id": "email-build",
+      "name": "Email erstellen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "email-respond",
+      "name": "Respond Email",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        980,
+        450
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $input.first().json.parsed;\nconst sheetId = $('Set Data').first().json.google_sheet_id || '';\nconst cells = [parsed.customerName, parsed.customerEmail, parsed.customerStreet || '', parsed.customerZip || '', parsed.customerCity || '', parsed.productName, parsed.productNumber || '', parsed.quantity || 1, parsed.deliveryName || '', parsed.deliveryStreet || '', parsed.deliveryZip || '', parsed.deliveryCity || ''];\nconst row = cells.map(v => String(v ?? '').replace(/[\\t\\n]/g, ' ')).join('\\t');\nconst sheetUrl = sheetId ? 'https://docs.google.com/spreadsheets/d/' + sheetId + '/edit' : '';\nreturn [{ json: { status: 'success', type: 'google_sheets', data: row, sheetUrl: sheetUrl } }];"
+      },
+      "id": "google-build",
+      "name": "Google Sheets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "google-respond",
+      "name": "Respond Google",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        980,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// === SHOPWARE EINSTELLUNGEN ===\nconst shopwareUrl = 'https://yakuza.bravion.de';\nconst clientId = 'ENTFERNT_CLIENT_ID';\nconst clientSecret = 'ENTFERNT_CLIENT_SECRET';\n\nconst items = $input.all();\nfor (const item of items) {\n  item.json.shopwareUrl = shopwareUrl.replace(/\\/+$/, '');\n  item.json.clientId = clientId;\n  item.json.clientSecret = clientSecret;\n}\nreturn items;"
+      },
+      "id": "sw-config",
+      "name": "SHOPWARE EINSTELLUNGEN",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.shopwareUrl }}/api/oauth/token",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"grant_type\": \"client_credentials\",\n  \"client_id\": \"{{ $json.clientId }}\",\n  \"client_secret\": \"{{ $json.clientSecret }}\"\n}",
+        "options": {}
+      },
+      "id": "sw-token",
+      "name": "Get Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        980,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('SHOPWARE EINSTELLUNGEN').first().json.shopwareUrl }}/api/search/customer",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filter\": [{\"type\": \"equals\", \"field\": \"email\", \"value\": \"{{ $('Set Data').first().json.parsed.customerEmail }}\"}]\n}",
+        "options": {}
+      },
+      "id": "sw-search-cust",
+      "name": "Search Customer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1200,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.total ?? $json.meta?.total ?? 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "sw-if",
+      "name": "If Not Found",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1420,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('SHOPWARE EINSTELLUNGEN').first().json.shopwareUrl }}/api/customer?_response=basic",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Token').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"firstName\": \"{{ $('Set Data').first().json.parsed.customerName.split(' ')[0] }}\",\n  \"lastName\": \"{{ $('Set Data').first().json.parsed.customerName.split(' ').slice(1).join(' ') || 'Unknown' }}\",\n  \"email\": \"{{ $('Set Data').first().json.parsed.customerEmail }}\",\n  \"salutationId\": \"019c14a2d1027002b495f96502a19438\",\n  \"groupId\": \"cfbd5018d38d41d8adca10d94fc8bdd6\",\n  \"defaultPaymentMethodId\": \"019c14a2d16b725a937772e8e4e91625\",\n  \"salesChannelId\": \"019c14a31441723b8a3a5173f49b5795\",\n  \"customerNumber\": \"{{ Math.floor(Math.random() * 100000).toString() }}\",\n  \"defaultBillingAddress\": {\n    \"firstName\": \"{{ $('Set Data').first().json.parsed.customerName.split(' ')[0] }}\",\n    \"lastName\": \"{{ $('Set Data').first().json.parsed.customerName.split(' ').slice(1).join(' ') || 'Unknown' }}\",\n    \"street\": \"{{ $('Set Data').first().json.parsed.customerStreet || 'Dummy Str. 1' }}\",\n    \"zipcode\": \"{{ $('Set Data').first().json.parsed.customerZip || '12345' }}\",\n    \"city\": \"{{ $('Set Data').first().json.parsed.customerCity || 'Dummy City' }}\",\n    \"countryId\": \"019c14a2d10372a4be16521bf892db25\",\n    \"salutationId\": \"019c14a2d1027002b495f96502a19438\"\n  }\n}",
+        "options": {}
+      },
+      "id": "sw-create-cust",
+      "name": "Create Customer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1640,
+        50
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('SHOPWARE EINSTELLUNGEN').first().json.shopwareUrl }}/api/search/product",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Token').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $('Webhook (Process)').first().json.body.parsed.productNumber ? JSON.stringify({filter: [{type: 'equals', field: 'productNumber', value: $('Webhook (Process)').first().json.body.parsed.productNumber}]}) : JSON.stringify({filter: [{type: 'contains', field: 'name', value: $('Set Data').first().json.parsed.productName}]}) }}",
+        "options": {}
+      },
+      "id": "sw-search-prod",
+      "name": "Search Product",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1860,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $('Set Data').first().json.parsed;\nconst searchProduct = $input.first().json;\nlet customerIsNew = false;\nlet customerId = '';\ntry {\n  const sc = $('Search Customer').first().json;\n  const total = (sc.total !== undefined) ? sc.total : (sc.meta ? sc.meta.total : 0);\n  if (total === 0) {\n    customerIsNew = true;\n    try { const created = $('Create Customer').first().json; customerId = (created.data && created.data.id) || created.id || 'new'; } catch(e) { customerId = 'new'; }\n  } else {\n    customerId = sc.data[0].id;\n  }\n} catch(e) { customerIsNew = true; customerId = 'unknown'; }\nconst pd = searchProduct.data || [];\nconst pf = pd.length > 0;\nconst deliv = {\n  name: parsed.deliveryName || '',\n  street: parsed.deliveryStreet || '',\n  zip: parsed.deliveryZip || '',\n  city: parsed.deliveryCity || ''\n};\ndeliv.differs = !!(deliv.name || deliv.street || deliv.zip || deliv.city);\nreturn [{ json: { status: 'success', type: 'shopware_preview', data: { customer: { name: parsed.customerName, email: parsed.customerEmail, street: parsed.customerStreet || '', zip: parsed.customerZip || '', city: parsed.customerCity || '', isNew: customerIsNew, id: customerId }, delivery: deliv, product: { name: pf ? pd[0].name : parsed.productName, number: pf ? pd[0].productNumber : 'N/A', quantity: parsed.quantity || 1, found: pf, id: pf ? pd[0].id : null } } } }];"
+      },
+      "id": "sw-build",
+      "name": "Build Preview",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "sw-respond",
+      "name": "Respond Shopware",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2300,
+        150
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voicedata-confirm",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-confirm",
+      "name": "Webhook (Confirm)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        1050
+      ],
+      "webhookId": "4a2efb8b-c1e3-47c3-8c0e-ac69a8f8f81c"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"success\",\n  \"message\": \"Bestellung {{ $('Build Order').first().json.summary.orderNumber }} erfolgreich in Shopware angelegt: {{ $('Build Order').first().json.summary.quantity }}x {{ $('Build Order').first().json.summary.product }}\"\n}",
+        "options": {}
+      },
+      "id": "confirm-respond",
+      "name": "Respond Confirm",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        900
+      ]
+    },
+    {
+      "id": "confirm-settings",
+      "name": "Confirm Settings",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        900
+      ],
+      "parameters": {
+        "jsCode": "// Shopware-Zugangsdaten (eigene Kopie, da der Confirm-Webhook eine separate Execution ist)\nconst shopwareUrl = 'https://yakuza.bravion.de';\nconst clientId = 'ENTFERNT_CLIENT_ID';\nconst clientSecret = 'ENTFERNT_CLIENT_SECRET';\nconst body = $input.first().json.body || {};\nif (!body.customer || !body.customer.id || body.customer.id === 'new' || body.customer.id === 'unknown') {\n  throw new Error('Keine gueltige Kunden-ID im Request.');\n}\nif (!body.product || !body.product.id) {\n  throw new Error('Keine gueltige Produkt-ID im Request.');\n}\nreturn [{ json: { shopwareUrl, clientId, clientSecret, body } }];"
+      }
+    },
+    {
+      "id": "confirm-get-token",
+      "name": "Get Token (Confirm)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        900
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.shopwareUrl }}/api/oauth/token",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"grant_type\": \"client_credentials\",\n  \"client_id\": \"{{ $json.clientId }}\",\n  \"client_secret\": \"{{ $json.clientSecret }}\"\n}",
+        "options": {}
+      }
+    },
+    {
+      "id": "confirm-get-customer",
+      "name": "Get Customer (Confirm)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        900
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/search/customer",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Token (Confirm)').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filter\": [{\"type\": \"equals\", \"field\": \"id\", \"value\": \"{{ $('Confirm Settings').first().json.body.customer.id }}\"}],\n  \"associations\": {\"defaultBillingAddress\": {}}\n}",
+        "options": {}
+      }
+    },
+    {
+      "id": "confirm-get-product",
+      "name": "Get Product (Confirm)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        900
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/search/product",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Token (Confirm)').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filter\": [{\"type\": \"equals\", \"field\": \"id\", \"value\": \"{{ $('Confirm Settings').first().json.body.product.id }}\"}],\n  \"associations\": {\"tax\": {}}\n}",
+        "options": {}
+      }
+    },
+    {
+      "id": "confirm-build-order",
+      "name": "Build Order",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        900
+      ],
+      "parameters": {
+        "jsCode": "const body = $('Confirm Settings').first().json.body;\nconst customerRes = $('Get Customer (Confirm)').first().json;\nconst productRes = $('Get Product (Confirm)').first().json;\nconst orderNumber = String($input.first().json.number || '');\nif (!customerRes.data || customerRes.data.length === 0) throw new Error('Kunde nicht in Shopware gefunden.');\nif (!productRes.data || productRes.data.length === 0) throw new Error('Produkt nicht in Shopware gefunden.');\nif (!orderNumber) throw new Error('Keine Bestellnummer vom NumberRange erhalten.');\nconst customer = customerRes.data[0].attributes || customerRes.data[0];\nconst product = productRes.data[0].attributes || productRes.data[0];\nconst productId = body.product.id;\nconst billingAddressId = customer.defaultBillingAddressId;\nif (!billingAddressId) throw new Error('Kunde hat keine Rechnungsadresse.');\nconst qty = Math.max(1, parseInt(body.product.quantity, 10) || 1);\nconst priceList = product.price || [];\nconst gross = priceList.length > 0 ? priceList[0].gross : 0;\nconst round2 = (v) => Math.round(v * 100) / 100;\nconst total = round2(gross * qty);\nconst taxRate = (product.tax && product.tax.taxRate !== undefined) ? product.tax.taxRate : 19;\nconst taxAmount = round2(total * taxRate / (100 + taxRate));\nconst calculatedTaxes = [{ tax: taxAmount, taxRate: taxRate, price: total }];\nconst taxRules = [{ taxRate: taxRate, percentage: 100 }];\nconst rounding = { decimals: 2, interval: 0.01, roundForNet: true };\nconst addrSrc = customer.defaultBillingAddress || {};\nconst deliv = body.delivery || {};\nconst delivName = (deliv.name || '').trim();\nconst delivParts = delivName.split(' ');\nconst shipFirst = delivName ? delivParts[0] : (customer.firstName || (body.customer.name || 'Unbekannt').split(' ')[0]);\nconst shipLast = delivName ? (delivParts.slice(1).join(' ') || delivParts[0]) : (customer.lastName || (body.customer.name || 'Unbekannt').split(' ').slice(1).join(' ') || 'Unbekannt');\nconst shipStreet = deliv.street || body.customer.street || addrSrc.street || 'Unbekannt';\nconst shipZip = deliv.zip || body.customer.zip || addrSrc.zipcode || '';\nconst shipCity = deliv.city || body.customer.city || addrSrc.city || 'Unbekannt';\nconst shipCountryId = addrSrc.countryId || '019c14a2d10372a4be16521bf892db25';\nconst orderPayload = {\n  orderNumber: orderNumber,\n  orderCustomer: {\n    customerId: body.customer.id,\n    email: body.customer.email || customer.email,\n    firstName: customer.firstName || (body.customer.name || 'Unbekannt').split(' ')[0],\n    lastName: customer.lastName || (body.customer.name || 'Unbekannt').split(' ').slice(1).join(' ') || 'Unbekannt'\n  },\n  currencyId: 'b7d2554b0ce847cd82f3ac9bd1c0dfca',\n  currencyFactor: 1,\n  languageId: '2fbb5fe2e29a4d70aa5854ce7ce3e20b',\n  salesChannelId: '019c14a31441723b8a3a5173f49b5795',\n  billingAddressId: billingAddressId,\n  stateId: '019c14a2d1a172469634ef7cb4638511',\n  orderDateTime: new Date().toISOString(),\n  itemRounding: rounding,\n  totalRounding: rounding,\n  price: {\n    netPrice: round2(total - taxAmount),\n    totalPrice: total,\n    rawTotal: total,\n    positionPrice: total,\n    calculatedTaxes: calculatedTaxes,\n    taxRules: taxRules,\n    taxStatus: 'gross'\n  },\n  shippingCosts: { unitPrice: 0, totalPrice: 0, quantity: 1, calculatedTaxes: [{ tax: 0, taxRate: taxRate, price: 0 }], taxRules: taxRules },\n  transactions: [{\n    paymentMethodId: '019c14a2d16b725a937772e8e4e91625',\n    stateId: '019c14a2d1ac7181a4f509c1c5e1f5c5',\n    amount: { unitPrice: total, totalPrice: total, quantity: 1, calculatedTaxes: calculatedTaxes, taxRules: taxRules }\n  }],\n  deliveries: [{\n    stateId: '019c14a2d1a7702188e8cd5c47967563',\n    shippingMethodId: '019c14a2d16f702d8216971ab1853288',\n    shippingCosts: { unitPrice: 0, totalPrice: 0, quantity: 1, calculatedTaxes: [{ tax: 0, taxRate: taxRate, price: 0 }], taxRules: taxRules },\n    shippingDateEarliest: new Date().toISOString(),\n    shippingDateLatest: new Date(Date.now() + 3 * 86400000).toISOString(),\n    shippingOrderAddress: {\n      firstName: shipFirst,\n      lastName: shipLast,\n      street: shipStreet,\n      zipcode: shipZip,\n      city: shipCity,\n      countryId: shipCountryId,\n      salutationId: '019c14a2d1027002b495f96502a19438'\n    }\n  }],\n  lineItems: [{\n    type: 'product',\n    identifier: productId,\n    referencedId: productId,\n    productId: productId,\n    label: product.name || body.product.name || 'Produkt',\n    quantity: qty,\n    position: 1,\n    states: ['is-physical'],\n    payload: { productNumber: product.productNumber || body.product.number },\n    price: {\n      unitPrice: gross,\n      totalPrice: total,\n      quantity: qty,\n      calculatedTaxes: calculatedTaxes,\n      taxRules: taxRules\n    }\n  }]\n};\nreturn [{ json: { orderPayload, summary: { product: product.name, quantity: qty, total: total, orderNumber: orderNumber } } }];"
+      }
+    },
+    {
+      "id": "confirm-create-order",
+      "name": "Create Order",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        900
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/order?_response=basic",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Token (Confirm)').first().json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.orderPayload) }}",
+        "options": {}
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/_action/number-range/reserve/order",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get Token (Confirm)').first().json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "name": "Get Order Number",
+      "id": "479fbe5b-d140-48ad-a4f9-4ac602c21d68",
+      "position": [
+        990,
+        1080
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook (Transcribe)": {
+      "main": [
+        [
+          {
+            "node": "Whisper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Whisper": {
+      "main": [
+        [
+          {
+            "node": "GPT-4o (Extract)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GPT-4o (Extract)": {
+      "main": [
+        [
+          {
+            "node": "Respond Transcribe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (Process)": {
+      "main": [
+        [
+          {
+            "node": "Set Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Data": {
+      "main": [
+        [
+          {
+            "node": "Switch Target",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch Target": {
+      "main": [
+        [
+          {
+            "node": "SHOPWARE EINSTELLUNGEN",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "CSV erstellen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CSV erstellen": {
+      "main": [
+        [
+          {
+            "node": "Respond CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email erstellen": {
+      "main": [
+        [
+          {
+            "node": "Respond Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Respond Google",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SHOPWARE EINSTELLUNGEN": {
+      "main": [
+        [
+          {
+            "node": "Get Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Token": {
+      "main": [
+        [
+          {
+            "node": "Search Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Customer": {
+      "main": [
+        [
+          {
+            "node": "If Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Not Found": {
+      "main": [
+        [
+          {
+            "node": "Create Customer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search Product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Customer": {
+      "main": [
+        [
+          {
+            "node": "Search Product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Product": {
+      "main": [
+        [
+          {
+            "node": "Build Preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Preview": {
+      "main": [
+        [
+          {
+            "node": "Respond Shopware",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook (Confirm)": {
+      "main": [
+        [
+          {
+            "node": "Confirm Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Settings": {
+      "main": [
+        [
+          {
+            "node": "Get Token (Confirm)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Token (Confirm)": {
+      "main": [
+        [
+          {
+            "node": "Get Customer (Confirm)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Customer (Confirm)": {
+      "main": [
+        [
+          {
+            "node": "Get Product (Confirm)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Product (Confirm)": {
+      "main": [
+        [
+          {
+            "node": "Get Order Number",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Order": {
+      "main": [
+        [
+          {
+            "node": "Create Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Order": {
+      "main": [
+        [
+          {
+            "node": "Respond Confirm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Order Number": {
+      "main": [
+        [
+          {
+            "node": "Build Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "fbe93eff-c690-46c3-b10d-2304c1e1a0fa",
+  "activeVersionId": "fbe93eff-c690-46c3-b10d-2304c1e1a0fa",
+  "versionCounter": 100,
+  "triggerCount": 3,
+  "shared": [
+    {
+      "updatedAt": "2026-06-10T07:01:28.789Z",
+      "createdAt": "2026-06-10T07:01:28.789Z",
+      "role": "workflow:owner",
+      "workflowId": "axwQOajsacMpQeyr",
+      "projectId": "QU28Lfle4f6SfKhe",
+      "project": {
+        "updatedAt": "2026-06-07T10:10:12.274Z",
+        "createdAt": "2026-06-07T09:54:34.169Z",
+        "id": "QU28Lfle4f6SfKhe",
+        "name": "ilja Naroska <in@iljanaroska.de>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "a203f1f2-433d-427a-8e62-2614796ba392"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-06-10T23:17:06.993Z",
+    "createdAt": "2026-06-10T23:17:06.993Z",
+    "versionId": "fbe93eff-c690-46c3-b10d-2304c1e1a0fa",
+    "workflowId": "axwQOajsacMpQeyr",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "voicedata",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "wh-transcribe",
+        "name": "Webhook (Transcribe)",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1.1,
+        "position": [
+          0,
+          150
+        ],
+        "webhookId": "56926af1-907d-4589-bb2a-e6417cd1fab2"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.openai.com/v1/audio/transcriptions",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer ENTFERNT_OPENAI_KEY"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "multipart-form-data",
+          "bodyParameters": {
+            "parameters": [
+              {
+                "parameterType": "formData",
+                "name": "model",
+                "value": "whisper-1"
+              },
+              {
+                "parameterType": "formBinaryData",
+                "name": "file",
+                "inputDataFieldName": "file"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "whisper",
+        "name": "Whisper",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [
+          220,
+          150
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.openai.com/v1/chat/completions",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "Bearer ENTFERNT_OPENAI_KEY"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"response_format\": {\n    \"type\": \"json_object\"\n  },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Du bist ein präziser Extraktions-Assistent für Voicememos. Gib AUSNAHMSLOS nur gültiges JSON zurück:\\n{\\n  \\\"customerName\\\": \\\"Max Mustermann\\\",\\n  \\\"customerEmail\\\": \\\"max.mustermann@gmx.de\\\",\\n  \\\"customerStreet\\\": \\\"Hauptstraße 12\\\",\\n  \\\"customerZip\\\": \\\"12345\\\",\\n  \\\"customerCity\\\": \\\"Musterstadt\\\",\\n  \\\"productName\\\": \\\"Schrauben\\\",\\n  \\\"productNumber\\\": \\\"SW10001\\\",\\n  \\\"quantity\\\": 1,\\n  \\\"deliveryName\\\": \\\"\\\",\\n  \\\"deliveryStreet\\\": \\\"\\\",\\n  \\\"deliveryZip\\\": \\\"\\\",\\n  \\\"deliveryCity\\\": \\\"\\\"\\n}\\n\\nREGELN FÜR E-MAILS:\\n1. Analysiere den Text sorgfältig auf gesprochene/buchstabierte E-Mails. Diese werden oft mit 'at' oder 'klammeraffe' für '@' und 'punkt' für '.' gesprochen (z.B. 'in at iljanarowska.de' -> 'in@iljanarowska.de', 'info klammeraffe gmx punkt de' -> 'info@gmx.de'). Rekonstruiere diese gesprochene E-Mail exakt!\\n2. Benutze NIEMALS die Endung '@dummy.com', wenn im Voicememo eine E-Mail-Adresse gesprochen oder buchstabiert wird.\\n3. Nur wenn im gesamten Voicememo absolut KEINE E-Mail vorkommt, generiere eine Dummy-E-Mail im Format 'vorname.nachname@dummy.com' basierend auf dem Namen.\\n4. Wenn Strasse, PLZ oder Ort fehlen, lasse diese Felder leer (\\\"\\\").\\n5. Nur wenn im Voicememo eine ABWEICHENDE Lieferadresse genannt wird (z.B. \\\"liefern an\\\", \\\"Lieferadresse ist\\\"), fülle deliveryName/deliveryStreet/deliveryZip/deliveryCity. Sonst lasse diese vier Felder leer (\\\"\\\").\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.text }}\"\n    }\n  ]\n}",
+          "options": {}
+        },
+        "id": "gpt",
+        "name": "GPT-4o (Extract)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [
+          440,
+          150
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={\n  \"status\": \"success\",\n  \"type\": \"extracted_fields\",\n  \"data\": {{ $json.choices[0].message.content }}\n}",
+          "options": {}
+        },
+        "id": "transcribe-respond",
+        "name": "Respond Transcribe",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          660,
+          150
+        ]
+      },
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "voicedata-process",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "wh-process",
+        "name": "Webhook (Process)",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1.1,
+        "position": [
+          0,
+          450
+        ],
+        "webhookId": "b94d1c8e-da38-4175-a210-02f078767712"
+      },
+      {
+        "parameters": {
+          "jsCode": "const body = $input.first().json.body || {};\nconst parsed = body.parsed || {};\nconst target = body.target || 'csv';\nconst google_sheet_id = body.google_sheet_id || '';\nreturn [{ json: { parsed, target, google_sheet_id } }];"
+        },
+        "id": "set-data",
+        "name": "Set Data",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          450
+        ]
+      },
+      {
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": false,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 1
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.target }}",
+                      "rightValue": "shopware",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "Shopware"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": false,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 1
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.target }}",
+                      "rightValue": "email",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "Email"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": false,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 1
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.target }}",
+                      "rightValue": "google_sheets",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "Google"
+              },
+              {
+                "conditions": {
+                  "options": {
+                    "caseSensitive": false,
+                    "leftValue": "",
+                    "typeValidation": "strict",
+                    "version": 1
+                  },
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.target }}",
+                      "rightValue": "csv",
+                      "operator": {
+                        "type": "string",
+                        "operation": "equals"
+                      }
+                    }
+                  ],
+                  "combinator": "and"
+                },
+                "renameOutput": true,
+                "outputKey": "CSV"
+              }
+            ]
+          },
+          "fallbackOutput": "none",
+          "options": {}
+        },
+        "id": "switch",
+        "name": "Switch Target",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3.1,
+        "position": [
+          440,
+          450
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const parsed = $input.first().json.parsed;\nconst esc = (v) => '\"' + String(v ?? '').replace(/\"/g, '\"\"') + '\"';\nconst row = [parsed.customerName, parsed.customerEmail, parsed.customerStreet || '', parsed.customerZip || '', parsed.customerCity || '', parsed.productName, parsed.quantity || 1, parsed.deliveryName || '', parsed.deliveryStreet || '', parsed.deliveryZip || '', parsed.deliveryCity || ''].map(esc).join(',');\nconst csv = 'Kunde,Email,Strasse,PLZ,Ort,Produkt,Menge,LieferEmpfaenger,LieferStrasse,LieferPLZ,LieferOrt\\n' + row;\nreturn [{ json: { status: 'success', type: 'csv', data: csv } }];"
+        },
+        "id": "csv-build",
+        "name": "CSV erstellen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          760,
+          750
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ JSON.stringify($json) }}",
+          "options": {}
+        },
+        "id": "csv-respond",
+        "name": "Respond CSV",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          980,
+          750
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const parsed = $input.first().json.parsed;\nlet text = 'Kunde: ' + parsed.customerName + '\\nEmail: ' + parsed.customerEmail + '\\nAnschrift: ' + (parsed.customerStreet || '') + ', ' + (parsed.customerZip || '') + ' ' + (parsed.customerCity || '');\nif (parsed.deliveryName || parsed.deliveryStreet || parsed.deliveryCity) {\n  text += '\\nLieferanschrift: ' + (parsed.deliveryName || parsed.customerName) + ', ' + (parsed.deliveryStreet || '') + ', ' + (parsed.deliveryZip || '') + ' ' + (parsed.deliveryCity || '');\n} else {\n  text += '\\nLieferanschrift: wie Rechnungsanschrift';\n}\ntext += '\\nProdukt: ' + parsed.productName + '\\nMenge: ' + (parsed.quantity || 1);\nreturn [{ json: { status: 'success', type: 'email', data: text } }];"
+        },
+        "id": "email-build",
+        "name": "Email erstellen",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          760,
+          450
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ JSON.stringify($json) }}",
+          "options": {}
+        },
+        "id": "email-respond",
+        "name": "Respond Email",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          980,
+          450
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const parsed = $input.first().json.parsed;\nconst sheetId = $('Set Data').first().json.google_sheet_id || '';\nconst cells = [parsed.customerName, parsed.customerEmail, parsed.customerStreet || '', parsed.customerZip || '', parsed.customerCity || '', parsed.productName, parsed.productNumber || '', parsed.quantity || 1, parsed.deliveryName || '', parsed.deliveryStreet || '', parsed.deliveryZip || '', parsed.deliveryCity || ''];\nconst row = cells.map(v => String(v ?? '').replace(/[\\t\\n]/g, ' ')).join('\\t');\nconst sheetUrl = sheetId ? 'https://docs.google.com/spreadsheets/d/' + sheetId + '/edit' : '';\nreturn [{ json: { status: 'success', type: 'google_sheets', data: row, sheetUrl: sheetUrl } }];"
+        },
+        "id": "google-build",
+        "name": "Google Sheets",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          760,
+          600
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ JSON.stringify($json) }}",
+          "options": {}
+        },
+        "id": "google-respond",
+        "name": "Respond Google",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          980,
+          600
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// === SHOPWARE EINSTELLUNGEN ===\nconst shopwareUrl = 'https://yakuza.bravion.de';\nconst clientId = 'ENTFERNT_CLIENT_ID';\nconst clientSecret = 'ENTFERNT_CLIENT_SECRET';\n\nconst items = $input.all();\nfor (const item of items) {\n  item.json.shopwareUrl = shopwareUrl.replace(/\\/+$/, '');\n  item.json.clientId = clientId;\n  item.json.clientSecret = clientSecret;\n}\nreturn items;"
+        },
+        "id": "sw-config",
+        "name": "SHOPWARE EINSTELLUNGEN",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          760,
+          150
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.shopwareUrl }}/api/oauth/token",
+          "authentication": "none",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"grant_type\": \"client_credentials\",\n  \"client_id\": \"{{ $json.clientId }}\",\n  \"client_secret\": \"{{ $json.clientSecret }}\"\n}",
+          "options": {}
+        },
+        "id": "sw-token",
+        "name": "Get Token",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [
+          980,
+          150
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('SHOPWARE EINSTELLUNGEN').first().json.shopwareUrl }}/api/search/customer",
+          "authentication": "none",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"filter\": [{\"type\": \"equals\", \"field\": \"email\", \"value\": \"{{ $('Set Data').first().json.parsed.customerEmail }}\"}]\n}",
+          "options": {}
+        },
+        "id": "sw-search-cust",
+        "name": "Search Customer",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [
+          1200,
+          150
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "c1",
+                "leftValue": "={{ $json.total ?? $json.meta?.total ?? 0 }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "sw-if",
+        "name": "If Not Found",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1420,
+          150
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('SHOPWARE EINSTELLUNGEN').first().json.shopwareUrl }}/api/customer?_response=basic",
+          "authentication": "none",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $('Get Token').first().json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"firstName\": \"{{ $('Set Data').first().json.parsed.customerName.split(' ')[0] }}\",\n  \"lastName\": \"{{ $('Set Data').first().json.parsed.customerName.split(' ').slice(1).join(' ') || 'Unknown' }}\",\n  \"email\": \"{{ $('Set Data').first().json.parsed.customerEmail }}\",\n  \"salutationId\": \"019c14a2d1027002b495f96502a19438\",\n  \"groupId\": \"cfbd5018d38d41d8adca10d94fc8bdd6\",\n  \"defaultPaymentMethodId\": \"019c14a2d16b725a937772e8e4e91625\",\n  \"salesChannelId\": \"019c14a31441723b8a3a5173f49b5795\",\n  \"customerNumber\": \"{{ Math.floor(Math.random() * 100000).toString() }}\",\n  \"defaultBillingAddress\": {\n    \"firstName\": \"{{ $('Set Data').first().json.parsed.customerName.split(' ')[0] }}\",\n    \"lastName\": \"{{ $('Set Data').first().json.parsed.customerName.split(' ').slice(1).join(' ') || 'Unknown' }}\",\n    \"street\": \"{{ $('Set Data').first().json.parsed.customerStreet || 'Dummy Str. 1' }}\",\n    \"zipcode\": \"{{ $('Set Data').first().json.parsed.customerZip || '12345' }}\",\n    \"city\": \"{{ $('Set Data').first().json.parsed.customerCity || 'Dummy City' }}\",\n    \"countryId\": \"019c14a2d10372a4be16521bf892db25\",\n    \"salutationId\": \"019c14a2d1027002b495f96502a19438\"\n  }\n}",
+          "options": {}
+        },
+        "id": "sw-create-cust",
+        "name": "Create Customer",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [
+          1640,
+          50
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('SHOPWARE EINSTELLUNGEN').first().json.shopwareUrl }}/api/search/product",
+          "authentication": "none",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $('Get Token').first().json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ $('Webhook (Process)').first().json.body.parsed.productNumber ? JSON.stringify({filter: [{type: 'equals', field: 'productNumber', value: $('Webhook (Process)').first().json.body.parsed.productNumber}]}) : JSON.stringify({filter: [{type: 'contains', field: 'name', value: $('Set Data').first().json.parsed.productName}]}) }}",
+          "options": {}
+        },
+        "id": "sw-search-prod",
+        "name": "Search Product",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.1,
+        "position": [
+          1860,
+          150
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const parsed = $('Set Data').first().json.parsed;\nconst searchProduct = $input.first().json;\nlet customerIsNew = false;\nlet customerId = '';\ntry {\n  const sc = $('Search Customer').first().json;\n  const total = (sc.total !== undefined) ? sc.total : (sc.meta ? sc.meta.total : 0);\n  if (total === 0) {\n    customerIsNew = true;\n    try { const created = $('Create Customer').first().json; customerId = (created.data && created.data.id) || created.id || 'new'; } catch(e) { customerId = 'new'; }\n  } else {\n    customerId = sc.data[0].id;\n  }\n} catch(e) { customerIsNew = true; customerId = 'unknown'; }\nconst pd = searchProduct.data || [];\nconst pf = pd.length > 0;\nconst deliv = {\n  name: parsed.deliveryName || '',\n  street: parsed.deliveryStreet || '',\n  zip: parsed.deliveryZip || '',\n  city: parsed.deliveryCity || ''\n};\ndeliv.differs = !!(deliv.name || deliv.street || deliv.zip || deliv.city);\nreturn [{ json: { status: 'success', type: 'shopware_preview', data: { customer: { name: parsed.customerName, email: parsed.customerEmail, street: parsed.customerStreet || '', zip: parsed.customerZip || '', city: parsed.customerCity || '', isNew: customerIsNew, id: customerId }, delivery: deliv, product: { name: pf ? pd[0].name : parsed.productName, number: pf ? pd[0].productNumber : 'N/A', quantity: parsed.quantity || 1, found: pf, id: pf ? pd[0].id : null } } } }];"
+        },
+        "id": "sw-build",
+        "name": "Build Preview",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2080,
+          150
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ JSON.stringify($json) }}",
+          "options": {}
+        },
+        "id": "sw-respond",
+        "name": "Respond Shopware",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          2300,
+          150
+        ]
+      },
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "voicedata-confirm",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "wh-confirm",
+        "name": "Webhook (Confirm)",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1.1,
+        "position": [
+          0,
+          1050
+        ],
+        "webhookId": "4a2efb8b-c1e3-47c3-8c0e-ac69a8f8f81c"
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={\n  \"status\": \"success\",\n  \"message\": \"Bestellung {{ $('Build Order').first().json.summary.orderNumber }} erfolgreich in Shopware angelegt: {{ $('Build Order').first().json.summary.quantity }}x {{ $('Build Order').first().json.summary.product }}\"\n}",
+          "options": {}
+        },
+        "id": "confirm-respond",
+        "name": "Respond Confirm",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          1540,
+          900
+        ]
+      },
+      {
+        "id": "confirm-settings",
+        "name": "Confirm Settings",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          900
+        ],
+        "parameters": {
+          "jsCode": "// Shopware-Zugangsdaten (eigene Kopie, da der Confirm-Webhook eine separate Execution ist)\nconst shopwareUrl = 'https://yakuza.bravion.de';\nconst clientId = 'ENTFERNT_CLIENT_ID';\nconst clientSecret = 'ENTFERNT_CLIENT_SECRET';\nconst body = $input.first().json.body || {};\nif (!body.customer || !body.customer.id || body.customer.id === 'new' || body.customer.id === 'unknown') {\n  throw new Error('Keine gueltige Kunden-ID im Request.');\n}\nif (!body.product || !body.product.id) {\n  throw new Error('Keine gueltige Produkt-ID im Request.');\n}\nreturn [{ json: { shopwareUrl, clientId, clientSecret, body } }];"
+        }
+      },
+      {
+        "id": "confirm-get-token",
+        "name": "Get Token (Confirm)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          900
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $json.shopwareUrl }}/api/oauth/token",
+          "authentication": "none",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"grant_type\": \"client_credentials\",\n  \"client_id\": \"{{ $json.clientId }}\",\n  \"client_secret\": \"{{ $json.clientSecret }}\"\n}",
+          "options": {}
+        }
+      },
+      {
+        "id": "confirm-get-customer",
+        "name": "Get Customer (Confirm)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          660,
+          900
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/search/customer",
+          "authentication": "none",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $('Get Token (Confirm)').first().json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"filter\": [{\"type\": \"equals\", \"field\": \"id\", \"value\": \"{{ $('Confirm Settings').first().json.body.customer.id }}\"}],\n  \"associations\": {\"defaultBillingAddress\": {}}\n}",
+          "options": {}
+        }
+      },
+      {
+        "id": "confirm-get-product",
+        "name": "Get Product (Confirm)",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          880,
+          900
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/search/product",
+          "authentication": "none",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $('Get Token (Confirm)').first().json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"filter\": [{\"type\": \"equals\", \"field\": \"id\", \"value\": \"{{ $('Confirm Settings').first().json.body.product.id }}\"}],\n  \"associations\": {\"tax\": {}}\n}",
+          "options": {}
+        }
+      },
+      {
+        "id": "confirm-build-order",
+        "name": "Build Order",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1100,
+          900
+        ],
+        "parameters": {
+          "jsCode": "const body = $('Confirm Settings').first().json.body;\nconst customerRes = $('Get Customer (Confirm)').first().json;\nconst productRes = $('Get Product (Confirm)').first().json;\nconst orderNumber = String($input.first().json.number || '');\nif (!customerRes.data || customerRes.data.length === 0) throw new Error('Kunde nicht in Shopware gefunden.');\nif (!productRes.data || productRes.data.length === 0) throw new Error('Produkt nicht in Shopware gefunden.');\nif (!orderNumber) throw new Error('Keine Bestellnummer vom NumberRange erhalten.');\nconst customer = customerRes.data[0].attributes || customerRes.data[0];\nconst product = productRes.data[0].attributes || productRes.data[0];\nconst productId = body.product.id;\nconst billingAddressId = customer.defaultBillingAddressId;\nif (!billingAddressId) throw new Error('Kunde hat keine Rechnungsadresse.');\nconst qty = Math.max(1, parseInt(body.product.quantity, 10) || 1);\nconst priceList = product.price || [];\nconst gross = priceList.length > 0 ? priceList[0].gross : 0;\nconst round2 = (v) => Math.round(v * 100) / 100;\nconst total = round2(gross * qty);\nconst taxRate = (product.tax && product.tax.taxRate !== undefined) ? product.tax.taxRate : 19;\nconst taxAmount = round2(total * taxRate / (100 + taxRate));\nconst calculatedTaxes = [{ tax: taxAmount, taxRate: taxRate, price: total }];\nconst taxRules = [{ taxRate: taxRate, percentage: 100 }];\nconst rounding = { decimals: 2, interval: 0.01, roundForNet: true };\nconst addrSrc = customer.defaultBillingAddress || {};\nconst deliv = body.delivery || {};\nconst delivName = (deliv.name || '').trim();\nconst delivParts = delivName.split(' ');\nconst shipFirst = delivName ? delivParts[0] : (customer.firstName || (body.customer.name || 'Unbekannt').split(' ')[0]);\nconst shipLast = delivName ? (delivParts.slice(1).join(' ') || delivParts[0]) : (customer.lastName || (body.customer.name || 'Unbekannt').split(' ').slice(1).join(' ') || 'Unbekannt');\nconst shipStreet = deliv.street || body.customer.street || addrSrc.street || 'Unbekannt';\nconst shipZip = deliv.zip || body.customer.zip || addrSrc.zipcode || '';\nconst shipCity = deliv.city || body.customer.city || addrSrc.city || 'Unbekannt';\nconst shipCountryId = addrSrc.countryId || '019c14a2d10372a4be16521bf892db25';\nconst orderPayload = {\n  orderNumber: orderNumber,\n  orderCustomer: {\n    customerId: body.customer.id,\n    email: body.customer.email || customer.email,\n    firstName: customer.firstName || (body.customer.name || 'Unbekannt').split(' ')[0],\n    lastName: customer.lastName || (body.customer.name || 'Unbekannt').split(' ').slice(1).join(' ') || 'Unbekannt'\n  },\n  currencyId: 'b7d2554b0ce847cd82f3ac9bd1c0dfca',\n  currencyFactor: 1,\n  languageId: '2fbb5fe2e29a4d70aa5854ce7ce3e20b',\n  salesChannelId: '019c14a31441723b8a3a5173f49b5795',\n  billingAddressId: billingAddressId,\n  stateId: '019c14a2d1a172469634ef7cb4638511',\n  orderDateTime: new Date().toISOString(),\n  itemRounding: rounding,\n  totalRounding: rounding,\n  price: {\n    netPrice: round2(total - taxAmount),\n    totalPrice: total,\n    rawTotal: total,\n    positionPrice: total,\n    calculatedTaxes: calculatedTaxes,\n    taxRules: taxRules,\n    taxStatus: 'gross'\n  },\n  shippingCosts: { unitPrice: 0, totalPrice: 0, quantity: 1, calculatedTaxes: [{ tax: 0, taxRate: taxRate, price: 0 }], taxRules: taxRules },\n  transactions: [{\n    paymentMethodId: '019c14a2d16b725a937772e8e4e91625',\n    stateId: '019c14a2d1ac7181a4f509c1c5e1f5c5',\n    amount: { unitPrice: total, totalPrice: total, quantity: 1, calculatedTaxes: calculatedTaxes, taxRules: taxRules }\n  }],\n  deliveries: [{\n    stateId: '019c14a2d1a7702188e8cd5c47967563',\n    shippingMethodId: '019c14a2d16f702d8216971ab1853288',\n    shippingCosts: { unitPrice: 0, totalPrice: 0, quantity: 1, calculatedTaxes: [{ tax: 0, taxRate: taxRate, price: 0 }], taxRules: taxRules },\n    shippingDateEarliest: new Date().toISOString(),\n    shippingDateLatest: new Date(Date.now() + 3 * 86400000).toISOString(),\n    shippingOrderAddress: {\n      firstName: shipFirst,\n      lastName: shipLast,\n      street: shipStreet,\n      zipcode: shipZip,\n      city: shipCity,\n      countryId: shipCountryId,\n      salutationId: '019c14a2d1027002b495f96502a19438'\n    }\n  }],\n  lineItems: [{\n    type: 'product',\n    identifier: productId,\n    referencedId: productId,\n    productId: productId,\n    label: product.name || body.product.name || 'Produkt',\n    quantity: qty,\n    position: 1,\n    states: ['is-physical'],\n    payload: { productNumber: product.productNumber || body.product.number },\n    price: {\n      unitPrice: gross,\n      totalPrice: total,\n      quantity: qty,\n      calculatedTaxes: calculatedTaxes,\n      taxRules: taxRules\n    }\n  }]\n};\nreturn [{ json: { orderPayload, summary: { product: product.name, quantity: qty, total: total, orderNumber: orderNumber } } }];"
+        }
+      },
+      {
+        "id": "confirm-create-order",
+        "name": "Create Order",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1320,
+          900
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/order?_response=basic",
+          "authentication": "none",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $('Get Token (Confirm)').first().json.access_token }}"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.orderPayload) }}",
+          "options": {}
+        }
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/_action/number-range/reserve/order",
+          "authentication": "none",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $('Get Token (Confirm)').first().json.access_token }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "name": "Get Order Number",
+        "id": "479fbe5b-d140-48ad-a4f9-4ac602c21d68",
+        "position": [
+          990,
+          1080
+        ]
+      }
+    ],
+    "connections": {
+      "Webhook (Transcribe)": {
+        "main": [
+          [
+            {
+              "node": "Whisper",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Whisper": {
+        "main": [
+          [
+            {
+              "node": "GPT-4o (Extract)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GPT-4o (Extract)": {
+        "main": [
+          [
+            {
+              "node": "Respond Transcribe",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Webhook (Process)": {
+        "main": [
+          [
+            {
+              "node": "Set Data",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set Data": {
+        "main": [
+          [
+            {
+              "node": "Switch Target",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Switch Target": {
+        "main": [
+          [
+            {
+              "node": "SHOPWARE EINSTELLUNGEN",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Email erstellen",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Google Sheets",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "CSV erstellen",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CSV erstellen": {
+        "main": [
+          [
+            {
+              "node": "Respond CSV",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Email erstellen": {
+        "main": [
+          [
+            {
+              "node": "Respond Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Google Sheets": {
+        "main": [
+          [
+            {
+              "node": "Respond Google",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "SHOPWARE EINSTELLUNGEN": {
+        "main": [
+          [
+            {
+              "node": "Get Token",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get Token": {
+        "main": [
+          [
+            {
+              "node": "Search Customer",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Search Customer": {
+        "main": [
+          [
+            {
+              "node": "If Not Found",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "If Not Found": {
+        "main": [
+          [
+            {
+              "node": "Create Customer",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Search Product",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Create Customer": {
+        "main": [
+          [
+            {
+              "node": "Search Product",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Search Product": {
+        "main": [
+          [
+            {
+              "node": "Build Preview",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Preview": {
+        "main": [
+          [
+            {
+              "node": "Respond Shopware",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Webhook (Confirm)": {
+        "main": [
+          [
+            {
+              "node": "Confirm Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Confirm Settings": {
+        "main": [
+          [
+            {
+              "node": "Get Token (Confirm)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get Token (Confirm)": {
+        "main": [
+          [
+            {
+              "node": "Get Customer (Confirm)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get Customer (Confirm)": {
+        "main": [
+          [
+            {
+              "node": "Get Product (Confirm)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get Product (Confirm)": {
+        "main": [
+          [
+            {
+              "node": "Get Order Number",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Order": {
+        "main": [
+          [
+            {
+              "node": "Create Order",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Create Order": {
+        "main": [
+          [
+            {
+              "node": "Respond Confirm",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get Order Number": {
+        "main": [
+          [
+            {
+              "node": "Build Order",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "ilja Naroska",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-06-10T23:17:07.049Z",
+        "id": 97,
+        "workflowId": "axwQOajsacMpQeyr",
+        "versionId": "fbe93eff-c690-46c3-b10d-2304c1e1a0fa",
+        "event": "activated",
+        "userId": "a203f1f2-433d-427a-8e62-2614796ba392"
+      },
+      {
+        "createdAt": "2026-06-10T23:17:07.031Z",
+        "id": 96,
+        "workflowId": "axwQOajsacMpQeyr",
+        "versionId": "fbe93eff-c690-46c3-b10d-2304c1e1a0fa",
+        "event": "deactivated",
+        "userId": "a203f1f2-433d-427a-8e62-2614796ba392"
+      }
+    ]
+  }
+}
