@@ -1,13 +1,6 @@
 // Transkript-Liste: gespeicherte Voicememos ansehen, in den Bestell-Flow laden, löschen.
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  Alert,
-  FlatList,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CheckCircle2, FileText, Trash2 } from 'lucide-react-native';
 import { deleteAllTranscripts, deleteTranscript, listTranscripts } from '../lib/transcripts';
 import { Transcript } from '../lib/types';
@@ -34,17 +27,21 @@ export default function TranscriptsScreen(props: {
   useEffect(refresh, [refresh, props.refreshKey]);
 
   const confirmDelete = (t: Transcript) => {
-    Alert.alert('Transkript löschen?', `„${t.fields.customerName || 'Ohne Name'}" vom ${formatDate(t.createdAt)} wird endgültig gelöscht.`, [
-      { text: 'Abbrechen', style: 'cancel' },
-      {
-        text: 'Löschen',
-        style: 'destructive',
-        onPress: async () => {
-          await deleteTranscript(t.id);
-          refresh();
+    Alert.alert(
+      'Transkript löschen?',
+      `„${t.fields.customerName || 'Ohne Name'}" vom ${formatDate(t.createdAt)} wird endgültig gelöscht.`,
+      [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'Löschen',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteTranscript(t.id);
+            refresh();
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const confirmDeleteAll = () => {
@@ -93,7 +90,9 @@ export default function TranscriptsScreen(props: {
                 {item.status === 'sent' ? (
                   <View style={styles.badgeSent}>
                     <CheckCircle2 size={11} color="#10B981" style={{ marginRight: 4 }} />
-                    <Text style={styles.badgeSentText}>{TARGET_LABELS[item.sentTarget || ''] || 'Gesendet'}</Text>
+                    <Text style={styles.badgeSentText}>
+                      {TARGET_LABELS[item.sentTarget || ''] || 'Gesendet'}
+                    </Text>
                   </View>
                 ) : (
                   <View style={styles.badgeDraft}>
@@ -102,14 +101,15 @@ export default function TranscriptsScreen(props: {
                 )}
               </View>
               <Text style={styles.cardSubtitle} numberOfLines={1}>
-                {item.fields.quantity}x {item.fields.productName || item.fields.productNumber || 'Kein Produkt'}
+                {item.fields.quantity}x{' '}
+                {item.fields.productName || item.fields.productNumber || 'Kein Produkt'}
               </Text>
               <Text style={styles.cardMeta}>
                 {formatDate(item.createdAt)}
                 {item.resultInfo ? ` · ${item.resultInfo}` : ''}
               </Text>
               <Text style={styles.cardTranscript} numberOfLines={2}>
-                „{item.transcriptText}"
+                {`„${item.transcriptText}“`}
               </Text>
             </View>
             <TouchableOpacity style={styles.deleteBtn} onPress={() => confirmDelete(item)}>
@@ -127,7 +127,12 @@ export default function TranscriptsScreen(props: {
 }
 
 const styles = StyleSheet.create({
-  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
   emptyText: { color: '#94A3B8', fontSize: 15, fontWeight: '600', marginTop: 14 },
   emptySubtext: { color: '#64748B', fontSize: 13, marginTop: 4, textAlign: 'center' },
   card: {

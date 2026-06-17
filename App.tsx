@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -49,7 +49,8 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import TranscriptsScreen from './src/screens/TranscriptsScreen';
 import { getCred } from './src/lib/credentials';
 import { transcribeAudio, extractFields } from './src/lib/openai';
-import { shopwarePreview, shopwareConfirmOrder } from './src/lib/shopware';
+import { shopwarePreview, shopwareConfirmOrder, parseShopwareIds } from './src/lib/shopware';
+import { validateForTarget } from './src/lib/validate';
 import { shopifyPreview, shopifyConfirmOrder } from './src/lib/shopify';
 import { hubspotPreview, hubspotConfirm } from './src/lib/hubspot';
 import { buildCsv, buildEmailText, buildSheetsRow } from './src/lib/localTargets';
@@ -64,7 +65,6 @@ import {
   TargetSystem,
   Transcript,
   CatalogProduct,
-  emptyFields,
 } from './src/lib/types';
 
 type Tab = 'record' | 'transcripts' | 'settings';
@@ -80,9 +80,14 @@ const TARGETS: { key: TargetSystem; label: string }[] = [
 
 const WEB_BLOCKED_TARGETS: TargetSystem[] = ['shopware', 'shopify', 'hubspot'];
 
+// Maximale Aufnahmedauer (5 Minuten) – danach automatischer Stopp.
+const MAX_RECORDING_MS = 5 * 60 * 1000;
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('record');
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>(
+    'idle',
+  );
   const [uploadMessage, setUploadMessage] = useState<string>('');
   const [targetSystem, setTargetSystem] = useState<TargetSystem>('shopware');
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
@@ -106,42 +111,51 @@ export default function App() {
   const [editDelivZip, setEditDelivZip] = useState<string>('');
   const [editDelivCity, setEditDelivCity] = useState<string>('');
 
-  const rotateAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  // Animated.Value via useMemo (stabil, ohne Ref-Zugriff im Render).
+  const rotateAnim = useMemo(() => new Animated.Value(0), []);
+  const pulseAnim = useMemo(() => new Animated.Value(1), []);
 
   // Audio Recorder
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, 100);
 
+  // Auto-Stopp nach maximaler Aufnahmedauer (verhindert endlose Aufnahmen / vollen Cache).
+  const recordingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true }).catch((e) =>
-      console.error('Audio mode failed', e)
+      console.error('Audio mode failed', e),
     );
+    return () => {
+      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+    };
   }, []);
 
   // Pulse animation when recording
   useEffect(() => {
     if (recorderState.isRecording) {
       Animated.loop(
-        Animated.timing(rotateAnim, { toValue: 1, duration: 3000, useNativeDriver: true })
+        Animated.timing(rotateAnim, { toValue: 1, duration: 3000, useNativeDriver: true }),
       ).start();
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true }),
           Animated.timing(pulseAnim, { toValue: 1.0, duration: 800, useNativeDriver: true }),
-        ])
+        ]),
       ).start();
     } else {
       pulseAnim.setValue(1);
     }
-  }, [recorderState.isRecording]);
+  }, [recorderState.isRecording, pulseAnim, rotateAnim]);
 
-  // Waveform
+  // Waveform: synchronisiert die Balkenhöhe mit dem externen Metering-Stream des Recorders.
+  // setState im Effect ist hier gewollt (Animations-Tick je Metering-Update), daher Regel aus.
   useEffect(() => {
     if (recorderState.isRecording) {
       const db = recorderState.metering ?? -160;
       const clamped = Math.max(-60, Math.min(0, db));
       const height = 5 + ((clamped + 60) / 60) * 35;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setWaveform((prev) => [...prev.slice(1), height]);
     } else {
       setWaveform(Array(30).fill(5));
@@ -183,7 +197,10 @@ export default function App() {
     try {
       const openaiKey = await getCred('openaiKey');
       if (!openaiKey) {
-        Alert.alert('OpenAI-Key fehlt', 'Bitte trage zuerst den OpenAI-API-Key in den Einstellungen ein.');
+        Alert.alert(
+          'OpenAI-Key fehlt',
+          'Bitte trage zuerst den OpenAI-API-Key in den Einstellungen ein.',
+        );
         setTab('settings');
         return;
       }
@@ -194,12 +211,27 @@ export default function App() {
       if (currentStatus !== 'granted') {
         const { status } = await requestRecordingPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert('Berechtigung erforderlich', 'Der Zugriff auf das Mikrofon wurde verweigert. Bitte aktiviere ihn in den Geräteeinstellungen.');
+          Alert.alert(
+            'Berechtigung erforderlich',
+            'Der Zugriff auf das Mikrofon wurde verweigert. Bitte aktiviere ihn in den Geräteeinstellungen.',
+          );
           return;
         }
       }
-      await recorder.prepareToRecordAsync({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
+      await recorder.prepareToRecordAsync({
+        ...RecordingPresets.HIGH_QUALITY,
+        isMeteringEnabled: true,
+      });
       await recorder.record();
+      // Sicherheits-Auto-Stopp nach MAX_RECORDING_MS.
+      if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = setTimeout(() => {
+        Alert.alert(
+          'Maximale Länge erreicht',
+          'Die Aufnahme wurde nach 5 Minuten automatisch gestoppt.',
+        );
+        stopRecording();
+      }, MAX_RECORDING_MS);
     } catch (err) {
       console.error('Failed to start recording', err);
       Alert.alert('Fehler', 'Die Aufnahme konnte nicht gestartet werden.');
@@ -208,6 +240,10 @@ export default function App() {
 
   // Aufnahme stoppen → transkribieren → Felder extrahieren → lokal speichern
   const stopRecording = async () => {
+    if (recordingTimeoutRef.current) {
+      clearTimeout(recordingTimeoutRef.current);
+      recordingTimeoutRef.current = null;
+    }
     try {
       await recorder.stop();
       const uri = recorder.uri;
@@ -216,7 +252,9 @@ export default function App() {
     } catch (err: any) {
       console.error('Failed to stop recording', err);
       setUploadStatus('error');
-      setUploadMessage('Aufnahme gestoppt, aber Verarbeitung fehlgeschlagen: ' + (err?.message || ''));
+      setUploadMessage(
+        'Aufnahme gestoppt, aber Verarbeitung fehlgeschlagen: ' + (err?.message || ''),
+      );
     }
   };
 
@@ -265,7 +303,16 @@ export default function App() {
     if (currentTranscriptId) updateTranscriptFields(currentTranscriptId, fields).catch(() => {});
 
     if (Platform.OS === 'web' && WEB_BLOCKED_TARGETS.includes(targetSystem)) {
-      Alert.alert('Nur in der Mobil-App', 'Shopware, Shopify und HubSpot sind im Browser wegen CORS nicht nutzbar. Bitte die App auf dem Handy verwenden.');
+      Alert.alert(
+        'Nur in der Mobil-App',
+        'Shopware, Shopify und HubSpot sind im Browser wegen CORS nicht nutzbar. Bitte die App auf dem Handy verwenden.',
+      );
+      return;
+    }
+
+    const validationErrors = validateForTarget(fields, targetSystem);
+    if (validationErrors.length > 0) {
+      Alert.alert('Bitte prüfen', validationErrors.join('\n'));
       return;
     }
 
@@ -274,15 +321,25 @@ export default function App() {
     try {
       let preview: PreviewData;
       if (targetSystem === 'shopware') {
-        const [url, clientId, clientSecret] = await Promise.all([
+        const [url, clientId, clientSecret, idsJson] = await Promise.all([
           getCred('shopwareUrl'),
           getCred('shopwareClientId'),
           getCred('shopwareClientSecret'),
+          getCred('shopwareIds'),
         ]);
-        if (!url || !clientId || !clientSecret) throw new Error('Shopware-Zugangsdaten fehlen (Einstellungen).');
-        preview = await shopwarePreview(fields, { url, clientId, clientSecret });
+        if (!url || !clientId || !clientSecret)
+          throw new Error('Shopware-Zugangsdaten fehlen (Einstellungen).');
+        preview = await shopwarePreview(fields, {
+          url,
+          clientId,
+          clientSecret,
+          ids: parseShopwareIds(idsJson),
+        });
       } else if (targetSystem === 'shopify') {
-        const [domain, token] = await Promise.all([getCred('shopifyDomain'), getCred('shopifyToken')]);
+        const [domain, token] = await Promise.all([
+          getCred('shopifyDomain'),
+          getCred('shopifyToken'),
+        ]);
         if (!domain || !token) throw new Error('Shopify-Zugangsdaten fehlen (Einstellungen).');
         preview = await shopifyPreview(fields, { domain, token });
       } else if (targetSystem === 'hubspot') {
@@ -314,19 +371,30 @@ export default function App() {
     const fields = getFields();
     setPreviewData(null);
     setUploadStatus('uploading');
-    setUploadMessage(type === 'hubspot_preview' ? 'Übertrage an HubSpot…' : 'Bestellung wird angelegt…');
+    setUploadMessage(
+      type === 'hubspot_preview' ? 'Übertrage an HubSpot…' : 'Bestellung wird angelegt…',
+    );
     try {
       let successMessage = '';
       if (type === 'shopware_preview') {
-        const [url, clientId, clientSecret] = await Promise.all([
+        const [url, clientId, clientSecret, idsJson] = await Promise.all([
           getCred('shopwareUrl'),
           getCred('shopwareClientId'),
           getCred('shopwareClientSecret'),
+          getCred('shopwareIds'),
         ]);
-        const result = await shopwareConfirmOrder(fields, { url, clientId, clientSecret });
+        const result = await shopwareConfirmOrder(fields, {
+          url,
+          clientId,
+          clientSecret,
+          ids: parseShopwareIds(idsJson),
+        });
         successMessage = `Bestellung ${result.orderNumber} erfolgreich in Shopware angelegt (${result.total.toFixed(2)} €).`;
       } else if (type === 'shopify_preview') {
-        const [domain, token] = await Promise.all([getCred('shopifyDomain'), getCred('shopifyToken')]);
+        const [domain, token] = await Promise.all([
+          getCred('shopifyDomain'),
+          getCred('shopifyToken'),
+        ]);
         const result = await shopifyConfirmOrder(fields, { domain, token });
         successMessage = `Bestellung ${result.orderNumber} erfolgreich in Shopify angelegt (${result.total.toFixed(2)}).`;
       } else if (type === 'hubspot_preview') {
@@ -360,12 +428,15 @@ export default function App() {
   const openEmailApp = (emailBody: string) => {
     const url = `mailto:?subject=${encodeURIComponent('Voicememo Bestellung')}&body=${encodeURIComponent(emailBody)}`;
     Linking.openURL(url).catch(() => {
-      Alert.alert('Fehler', 'E-Mail-App konnte nicht geöffnet werden. Bitte kopiere den Text manuell.');
+      Alert.alert(
+        'Fehler',
+        'E-Mail-App konnte nicht geöffnet werden. Bitte kopiere den Text manuell.',
+      );
     });
     closePreview();
     if (currentTranscriptId) {
       markTranscriptSent(currentTranscriptId, 'email', 'E-Mail-Entwurf geöffnet').then(() =>
-        setTranscriptsRefreshKey((k) => k + 1)
+        setTranscriptsRefreshKey((k) => k + 1),
       );
     }
   };
@@ -404,7 +475,10 @@ export default function App() {
         });
       } else {
         await Clipboard.setStringAsync(csv);
-        Alert.alert('Teilen nicht verfügbar', 'Die CSV-Daten wurden stattdessen in die Zwischenablage kopiert.');
+        Alert.alert(
+          'Teilen nicht verfügbar',
+          'Die CSV-Daten wurden stattdessen in die Zwischenablage kopiert.',
+        );
       }
     } catch (err) {
       console.error('CSV export failed', err);
@@ -426,8 +500,14 @@ export default function App() {
         'Die Daten liegen tab-getrennt in der Zwischenablage. Im Sheet eine Zelle auswählen und einfügen – die Werte verteilen sich automatisch auf die Spalten.',
         [
           { text: 'Abbrechen', style: 'cancel' },
-          { text: 'Sheet öffnen', onPress: () => Linking.openURL(url).catch(() => Alert.alert('Fehler', 'Sheet konnte nicht geöffnet werden.')) },
-        ]
+          {
+            text: 'Sheet öffnen',
+            onPress: () =>
+              Linking.openURL(url).catch(() =>
+                Alert.alert('Fehler', 'Sheet konnte nicht geöffnet werden.'),
+              ),
+          },
+        ],
       );
     } catch {
       Alert.alert('Fehler', 'Übertragung vorbereiten fehlgeschlagen.');
@@ -466,13 +546,17 @@ export default function App() {
   };
   const volumeScale = getMeteringScale();
 
-  const shopPreview = previewData && (previewData.type === 'shopware_preview' || previewData.type === 'shopify_preview')
-    ? (previewData as ShopPreview)
-    : null;
-  const hubspotPrev = previewData?.type === 'hubspot_preview' ? (previewData as HubspotPreview) : null;
-  const textPreview = previewData && ['csv', 'email', 'google_sheets'].includes(previewData.type)
-    ? (previewData as TextPreview)
-    : null;
+  const shopPreview =
+    previewData &&
+    (previewData.type === 'shopware_preview' || previewData.type === 'shopify_preview')
+      ? (previewData as ShopPreview)
+      : null;
+  const hubspotPrev =
+    previewData?.type === 'hubspot_preview' ? (previewData as HubspotPreview) : null;
+  const textPreview =
+    previewData && ['csv', 'email', 'google_sheets'].includes(previewData.type)
+      ? (previewData as TextPreview)
+      : null;
 
   const renderStatusCard = (extraStyle?: object) =>
     uploadStatus !== 'idle' && (
@@ -484,9 +568,15 @@ export default function App() {
           extraStyle,
         ]}
       >
-        {uploadStatus === 'uploading' && <ActivityIndicator size="small" color="#6366F1" style={styles.statusCardIcon} />}
-        {uploadStatus === 'success' && <CheckCircle2 size={20} color="#10B981" style={styles.statusCardIcon} />}
-        {uploadStatus === 'error' && <XCircle size={20} color="#EF4444" style={styles.statusCardIcon} />}
+        {uploadStatus === 'uploading' && (
+          <ActivityIndicator size="small" color="#6366F1" style={styles.statusCardIcon} />
+        )}
+        {uploadStatus === 'success' && (
+          <CheckCircle2 size={20} color="#10B981" style={styles.statusCardIcon} />
+        )}
+        {uploadStatus === 'error' && (
+          <XCircle size={20} color="#EF4444" style={styles.statusCardIcon} />
+        )}
         <Text
           style={[
             styles.statusCardText,
@@ -524,7 +614,11 @@ export default function App() {
             }}
             disabled={disabled}
           >
-            <Text style={[styles.targetBtnText, targetSystem === t.key && styles.targetBtnTextActive]}>{t.label}</Text>
+            <Text
+              style={[styles.targetBtnText, targetSystem === t.key && styles.targetBtnTextActive]}
+            >
+              {t.label}
+            </Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -573,15 +667,71 @@ export default function App() {
 
           <View style={styles.buttonOuterContainer}>
             {recorderState.isRecording && (
-              <Animated.View style={[styles.siriContainer, { transform: [{ scale: volumeScale }] }]}>
-                <Animated.View style={[styles.siriGlow, styles.siriBlue, { transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]}>
-                  <LinearGradient colors={['#3B82F6', 'transparent']} style={StyleSheet.absoluteFill} />
+              <Animated.View
+                style={[styles.siriContainer, { transform: [{ scale: volumeScale }] }]}
+              >
+                <Animated.View
+                  style={[
+                    styles.siriGlow,
+                    styles.siriBlue,
+                    {
+                      transform: [
+                        {
+                          rotate: rotateAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['0deg', '360deg'],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={['#3B82F6', 'transparent']}
+                    style={StyleSheet.absoluteFill}
+                  />
                 </Animated.View>
-                <Animated.View style={[styles.siriGlow, styles.siriPurple, { transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] }) }] }]}>
-                  <LinearGradient colors={['#8B5CF6', 'transparent']} style={StyleSheet.absoluteFill} />
+                <Animated.View
+                  style={[
+                    styles.siriGlow,
+                    styles.siriPurple,
+                    {
+                      transform: [
+                        {
+                          rotate: rotateAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['360deg', '0deg'],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={['#8B5CF6', 'transparent']}
+                    style={StyleSheet.absoluteFill}
+                  />
                 </Animated.View>
-                <Animated.View style={[styles.siriGlow, styles.siriPink, { transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '720deg'] }) }] }]}>
-                  <LinearGradient colors={['#EC4899', 'transparent']} style={StyleSheet.absoluteFill} />
+                <Animated.View
+                  style={[
+                    styles.siriGlow,
+                    styles.siriPink,
+                    {
+                      transform: [
+                        {
+                          rotate: rotateAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['0deg', '720deg'],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={['#EC4899', 'transparent']}
+                    style={StyleSheet.absoluteFill}
+                  />
                 </Animated.View>
               </Animated.View>
             )}
@@ -609,13 +759,19 @@ export default function App() {
           {recorderState.isRecording && (
             <View style={styles.waveformContainer}>
               {waveform.map((h, i) => (
-                <Animated.View key={i} style={[styles.waveformBar, { height: h, opacity: 0.3 + (i / 30) * 0.7 }]} />
+                <Animated.View
+                  key={i}
+                  style={[styles.waveformBar, { height: h, opacity: 0.3 + (i / 30) * 0.7 }]}
+                />
               ))}
             </View>
           )}
 
           {!recorderState.isRecording && (editCustName || editProdName) && (
-            <TouchableOpacity style={styles.reopenEditButton} onPress={() => setIsEditingFields(true)}>
+            <TouchableOpacity
+              style={styles.reopenEditButton}
+              onPress={() => setIsEditingFields(true)}
+            >
               <Settings size={16} color="#6366F1" style={{ marginRight: 8 }} />
               <Text style={styles.reopenEditButtonText}>Erfasste Daten bearbeiten</Text>
             </TouchableOpacity>
@@ -627,13 +783,11 @@ export default function App() {
 
       {/* Tab-Bar */}
       <View style={styles.tabBar}>
-        {(
-          [
-            { key: 'record' as Tab, label: 'Aufnahme', Icon: Mic },
-            { key: 'transcripts' as Tab, label: 'Transkripte', Icon: FileText },
-            { key: 'settings' as Tab, label: 'Einstellungen', Icon: Settings },
-          ]
-        ).map(({ key, label, Icon }) => (
+        {[
+          { key: 'record' as Tab, label: 'Aufnahme', Icon: Mic },
+          { key: 'transcripts' as Tab, label: 'Transkripte', Icon: FileText },
+          { key: 'settings' as Tab, label: 'Einstellungen', Icon: Settings },
+        ].map(({ key, label, Icon }) => (
           <TouchableOpacity key={key} style={styles.tabItem} onPress={() => setTab(key)}>
             <Icon size={20} color={tab === key ? '#6366F1' : '#64748B'} />
             <Text style={[styles.tabLabel, tab === key && styles.tabLabelActive]}>{label}</Text>
@@ -642,37 +796,63 @@ export default function App() {
       </View>
 
       {/* Edit Fields Modal */}
-      <Modal visible={isEditingFields} animationType="slide" transparent={true} onRequestClose={() => setIsEditingFields(false)}>
+      <Modal
+        visible={isEditingFields}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setIsEditingFields(false)}
+      >
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalBackdrop}>
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%' }}>
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ width: '100%' }}
+            >
               <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                 <View style={[styles.modalContainer, { maxHeight: '90%' }]}>
                   <View style={styles.modalHeader}>
                     <Text style={styles.modalTitle}>Erfasste Daten prüfen</Text>
                   </View>
 
-                  <ScrollView style={{ maxHeight: '70%' }} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
-                    <View style={[styles.targetSelectorContainer, { marginBottom: 16, marginTop: 4 }]}>
+                  <ScrollView
+                    style={{ maxHeight: '70%' }}
+                    contentContainerStyle={{ paddingBottom: 24 }}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    <View
+                      style={[styles.targetSelectorContainer, { marginBottom: 16, marginTop: 4 }]}
+                    >
                       <Text style={styles.targetSelectorLabel}>Zielsystem für Verarbeitung:</Text>
                       <View style={styles.targetGrid}>
                         {TARGETS.map((t) => (
                           <TouchableOpacity
                             key={t.key}
-                            style={[styles.targetBtn, targetSystem === t.key && styles.targetBtnActive]}
+                            style={[
+                              styles.targetBtn,
+                              targetSystem === t.key && styles.targetBtnActive,
+                            ]}
                             onPress={() => {
                               setTargetSystem(t.key);
                               setSuggestions([]);
                             }}
                             disabled={uploadStatus === 'uploading'}
                           >
-                            <Text style={[styles.targetBtnText, targetSystem === t.key && styles.targetBtnTextActive]}>{t.label}</Text>
+                            <Text
+                              style={[
+                                styles.targetBtnText,
+                                targetSystem === t.key && styles.targetBtnTextActive,
+                              ]}
+                            >
+                              {t.label}
+                            </Text>
                           </TouchableOpacity>
                         ))}
                       </View>
                     </View>
 
-                    <Text style={[styles.inputLabel, { color: '#6366F1' }]}>KUNDE & RECHNUNGSANSCHRIFT</Text>
+                    <Text style={[styles.inputLabel, { color: '#6366F1' }]}>
+                      KUNDE & RECHNUNGSANSCHRIFT
+                    </Text>
 
                     <Text style={[styles.inputLabel, { marginTop: 8 }]}>Kunde / Name</Text>
                     <View style={styles.inputWithIconContainer}>
@@ -759,7 +939,9 @@ export default function App() {
                       />
                     </View>
 
-                    <Text style={[styles.inputLabel, { marginTop: 14 }]}>Straße & Hausnummer (Lieferung)</Text>
+                    <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                      Straße & Hausnummer (Lieferung)
+                    </Text>
                     <View style={styles.inputWithIconContainer}>
                       <MapPin size={18} color="#94A3B8" style={styles.inputIcon} />
                       <TextInput
@@ -798,7 +980,9 @@ export default function App() {
                       </View>
                     </View>
 
-                    <Text style={[styles.inputLabel, { marginTop: 22, color: '#6366F1' }]}>PRODUKT</Text>
+                    <Text style={[styles.inputLabel, { marginTop: 22, color: '#6366F1' }]}>
+                      PRODUKT
+                    </Text>
 
                     <Text style={[styles.inputLabel, { marginTop: 8 }]}>Produktname</Text>
                     <View style={styles.inputWithIconContainer}>
@@ -815,7 +999,9 @@ export default function App() {
 
                     <View style={styles.rowInputs}>
                       <View style={{ flex: 2, marginRight: 8 }}>
-                        <Text style={[styles.inputLabel, { marginTop: 14 }]}>Produkt / Artikelnummer</Text>
+                        <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                          Produkt / Artikelnummer
+                        </Text>
                         <TextInput
                           style={styles.textInput}
                           value={editProdNumber}
@@ -844,12 +1030,18 @@ export default function App() {
                     {suggestions.length > 0 && (
                       <View style={styles.suggestionsBox}>
                         {suggestions.map((s) => (
-                          <TouchableOpacity key={`${s.shop}-${s.externalId}`} style={styles.suggestionRow} onPress={() => applySuggestion(s)}>
+                          <TouchableOpacity
+                            key={`${s.shop}-${s.externalId}`}
+                            style={styles.suggestionRow}
+                            onPress={() => applySuggestion(s)}
+                          >
                             <Text style={styles.suggestionNumber}>{s.number}</Text>
                             <Text style={styles.suggestionName} numberOfLines={1}>
                               {s.name}
                             </Text>
-                            <Text style={styles.suggestionPrice}>{s.priceGross ? `${s.priceGross.toFixed(2)} €` : ''}</Text>
+                            <Text style={styles.suggestionPrice}>
+                              {s.priceGross ? `${s.priceGross.toFixed(2)} €` : ''}
+                            </Text>
                           </TouchableOpacity>
                         ))}
                       </View>
@@ -875,7 +1067,11 @@ export default function App() {
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      style={[styles.modalButton, styles.modalButtonSave, uploadStatus === 'uploading' && { opacity: 0.6 }]}
+                      style={[
+                        styles.modalButton,
+                        styles.modalButtonSave,
+                        uploadStatus === 'uploading' && { opacity: 0.6 },
+                      ]}
                       onPress={processFields}
                       disabled={uploadStatus === 'uploading'}
                     >
@@ -894,7 +1090,12 @@ export default function App() {
       </Modal>
 
       {/* Universal Preview Modal */}
-      <Modal visible={!!previewData} animationType="fade" transparent={true} onRequestClose={closePreview}>
+      <Modal
+        visible={!!previewData}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={closePreview}
+      >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
@@ -914,7 +1115,9 @@ export default function App() {
                   <View style={styles.previewSection}>
                     <Text style={styles.previewSectionTitle}>KUNDE & ANSCHRIFT</Text>
                     <View style={styles.previewRow}>
-                      <Text style={styles.previewText}>{shopPreview.customer.name || 'Unbekannt'}</Text>
+                      <Text style={styles.previewText}>
+                        {shopPreview.customer.name || 'Unbekannt'}
+                      </Text>
                       {shopPreview.customer.isNew && (
                         <View style={styles.badgeContainer}>
                           <Text style={styles.badgeText}>NEU</Text>
@@ -922,7 +1125,7 @@ export default function App() {
                       )}
                     </View>
                     <Text style={styles.previewSubtext}>{shopPreview.customer.email}</Text>
-                    {(shopPreview.customer.street || shopPreview.customer.city) ? (
+                    {shopPreview.customer.street || shopPreview.customer.city ? (
                       <Text style={[styles.previewSubtext, { marginTop: 6, color: '#94A3B8' }]}>
                         {shopPreview.customer.street}
                         {shopPreview.customer.zip || shopPreview.customer.city ? '\n' : ''}
@@ -935,11 +1138,14 @@ export default function App() {
                     <Text style={styles.previewSectionTitle}>LIEFERANSCHRIFT</Text>
                     {shopPreview.delivery.differs ? (
                       <>
-                        <Text style={styles.previewText}>{shopPreview.delivery.name || shopPreview.customer.name}</Text>
+                        <Text style={styles.previewText}>
+                          {shopPreview.delivery.name || shopPreview.customer.name}
+                        </Text>
                         <Text style={[styles.previewSubtext, { color: '#94A3B8' }]}>
                           {shopPreview.delivery.street || shopPreview.customer.street}
                           {'\n'}
-                          {shopPreview.delivery.zip || shopPreview.customer.zip} {shopPreview.delivery.city || shopPreview.customer.city}
+                          {shopPreview.delivery.zip || shopPreview.customer.zip}{' '}
+                          {shopPreview.delivery.city || shopPreview.customer.city}
                         </Text>
                       </>
                     ) : (
@@ -955,13 +1161,17 @@ export default function App() {
                     {!!shopPreview.product.number && (
                       <Text style={styles.previewSubtext}>
                         Art-Nr: {shopPreview.product.number}
-                        {shopPreview.product.priceGross ? ` · ${shopPreview.product.priceGross.toFixed(2)} €` : ''}
+                        {shopPreview.product.priceGross
+                          ? ` · ${shopPreview.product.priceGross.toFixed(2)} €`
+                          : ''}
                       </Text>
                     )}
                     {shopPreview.product.found === false && (
                       <View style={[styles.warningContainer, { marginTop: 8 }]}>
                         <AlertCircle size={16} color="#F59E0B" style={styles.warningIcon} />
-                        <Text style={styles.warningText}>Produkt im Shop nicht gefunden! Bitte Schreibweise prüfen.</Text>
+                        <Text style={styles.warningText}>
+                          Produkt im Shop nicht gefunden! Bitte Schreibweise prüfen.
+                        </Text>
                       </View>
                     )}
                   </View>
@@ -973,7 +1183,9 @@ export default function App() {
                   <View style={styles.previewSection}>
                     <Text style={styles.previewSectionTitle}>KONTAKT</Text>
                     <View style={styles.previewRow}>
-                      <Text style={styles.previewText}>{hubspotPrev.contact.name || 'Unbekannt'}</Text>
+                      <Text style={styles.previewText}>
+                        {hubspotPrev.contact.name || 'Unbekannt'}
+                      </Text>
                       {hubspotPrev.contact.isNew && (
                         <View style={styles.badgeContainer}>
                           <Text style={styles.badgeText}>NEU</Text>
@@ -985,7 +1197,9 @@ export default function App() {
                   <View style={styles.previewSection}>
                     <Text style={styles.previewSectionTitle}>DEAL</Text>
                     <Text style={styles.previewText}>{hubspotPrev.dealName}</Text>
-                    <Text style={styles.previewSubtext}>Wird mit dem Kontakt verknüpft (Standard-Pipeline).</Text>
+                    <Text style={styles.previewSubtext}>
+                      Wird mit dem Kontakt verknüpft (Standard-Pipeline).
+                    </Text>
                   </View>
                 </>
               )}
@@ -993,8 +1207,14 @@ export default function App() {
               {textPreview?.type === 'csv' && (
                 <View style={styles.previewSection}>
                   <Text style={styles.previewSectionTitle}>CSV INHALT</Text>
-                  <ScrollView style={styles.csvScroll} contentContainerStyle={styles.csvContainer} horizontal={true}>
-                    <Text selectable={true} style={styles.codeText}>{textPreview.data}</Text>
+                  <ScrollView
+                    style={styles.csvScroll}
+                    contentContainerStyle={styles.csvContainer}
+                    horizontal={true}
+                  >
+                    <Text selectable={true} style={styles.codeText}>
+                      {textPreview.data}
+                    </Text>
                   </ScrollView>
                 </View>
               )}
@@ -1002,8 +1222,13 @@ export default function App() {
               {textPreview?.type === 'email' && (
                 <View style={styles.previewSection}>
                   <Text style={styles.previewSectionTitle}>E-MAIL TEXT</Text>
-                  <ScrollView style={styles.textScroll} contentContainerStyle={styles.textContainer}>
-                    <Text selectable={true} style={styles.previewText}>{textPreview.data}</Text>
+                  <ScrollView
+                    style={styles.textScroll}
+                    contentContainerStyle={styles.textContainer}
+                  >
+                    <Text selectable={true} style={styles.previewText}>
+                      {textPreview.data}
+                    </Text>
                   </ScrollView>
                 </View>
               )}
@@ -1011,15 +1236,23 @@ export default function App() {
               {textPreview?.type === 'google_sheets' && (
                 <View style={styles.previewSection}>
                   <Text style={styles.previewSectionTitle}>SPREADSHEET-ZEILE (TAB-GETRENNT)</Text>
-                  <ScrollView style={styles.textScroll} contentContainerStyle={styles.textContainer}>
-                    <Text selectable={true} style={styles.previewText}>{textPreview.data}</Text>
+                  <ScrollView
+                    style={styles.textScroll}
+                    contentContainerStyle={styles.textContainer}
+                  >
+                    <Text selectable={true} style={styles.previewText}>
+                      {textPreview.data}
+                    </Text>
                   </ScrollView>
                 </View>
               )}
             </View>
 
             <View style={styles.modalFooter}>
-              <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={closePreview}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel]}
+                onPress={closePreview}
+              >
                 <Text style={styles.modalButtonCancelText}>
                   {shopPreview || hubspotPrev ? 'Abbrechen' : 'Schließen'}
                 </Text>
@@ -1027,7 +1260,11 @@ export default function App() {
 
               {shopPreview && (
                 <TouchableOpacity
-                  style={[styles.modalButton, styles.modalButtonSave, shopPreview.product.found === false && { opacity: 0.5 }]}
+                  style={[
+                    styles.modalButton,
+                    styles.modalButtonSave,
+                    shopPreview.product.found === false && { opacity: 0.5 },
+                  ]}
                   onPress={confirmShopOrder}
                   disabled={shopPreview.product.found === false}
                 >
@@ -1036,23 +1273,35 @@ export default function App() {
               )}
 
               {hubspotPrev && (
-                <TouchableOpacity style={[styles.modalButton, styles.modalButtonSave]} onPress={confirmShopOrder}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonSave]}
+                  onPress={confirmShopOrder}
+                >
                   <Text style={styles.modalButtonSaveText}>Übertragen</Text>
                 </TouchableOpacity>
               )}
 
               {textPreview?.type === 'email' && (
-                <TouchableOpacity style={[styles.modalButton, styles.modalButtonSave]} onPress={() => openEmailApp(textPreview.data)}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.modalButtonSave]}
+                  onPress={() => openEmailApp(textPreview.data)}
+                >
                   <Text style={styles.modalButtonSaveText}>Mail App öffnen</Text>
                 </TouchableOpacity>
               )}
 
               {textPreview?.type === 'csv' && (
                 <>
-                  <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => copyToClipboard(textPreview.data)}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonCancel]}
+                    onPress={() => copyToClipboard(textPreview.data)}
+                  >
                     <Text style={styles.modalButtonCancelText}>Kopieren</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.modalButton, styles.modalButtonSave]} onPress={() => downloadCsv(textPreview.data)}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonSave]}
+                    onPress={() => downloadCsv(textPreview.data)}
+                  >
                     <Text style={styles.modalButtonSaveText}>Download</Text>
                   </TouchableOpacity>
                 </>
@@ -1060,10 +1309,16 @@ export default function App() {
 
               {textPreview?.type === 'google_sheets' && (
                 <>
-                  <TouchableOpacity style={[styles.modalButton, styles.modalButtonCancel]} onPress={() => copyToClipboard(textPreview.data)}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonCancel]}
+                    onPress={() => copyToClipboard(textPreview.data)}
+                  >
                     <Text style={styles.modalButtonCancelText}>Kopieren</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.modalButton, styles.modalButtonSave]} onPress={() => openGoogleSheet(textPreview.data, textPreview.sheetUrl)}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.modalButtonSave]}
+                    onPress={() => openGoogleSheet(textPreview.data, textPreview.sheetUrl)}
+                  >
                     <Text style={styles.modalButtonSaveText}>Sheet öffnen</Text>
                   </TouchableOpacity>
                 </>

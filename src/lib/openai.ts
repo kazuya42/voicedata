@@ -2,6 +2,7 @@
 // Ersetzt die n8n-Nodes „Whisper" und „GPT-4o (Extract)" (Prompt 1:1 übernommen).
 import { Platform } from 'react-native';
 import { ParsedFields, emptyFields } from './types';
+import { fetchWithRetry, parseApiError } from './http';
 
 const OPENAI_BASE = 'https://api.openai.com/v1';
 
@@ -28,15 +29,7 @@ REGELN FÜR E-MAILS:
 4. Wenn Strasse, PLZ oder Ort fehlen, lasse diese Felder leer ("").
 5. Nur wenn im Voicememo eine ABWEICHENDE Lieferadresse genannt wird (z.B. "liefern an", "Lieferadresse ist"), fülle deliveryName/deliveryStreet/deliveryZip/deliveryCity. Sonst lasse diese vier Felder leer ("").`;
 
-async function openaiError(response: Response): Promise<Error> {
-  let msg = `OpenAI HTTP ${response.status}`;
-  try {
-    const j = await response.json();
-    if (j?.error?.message) msg += `: ${j.error.message}`;
-  } catch {}
-  return new Error(msg);
-}
-
+// Transkript-Feldextraktion ist idempotent (kein Schreib-Seiteneffekt) -> Retry ist unkritisch.
 // Audio-Datei (m4a/webm) zu Whisper hochladen, Transkript-Text zurückgeben
 export async function transcribeAudio(uri: string, apiKey: string): Promise<string> {
   const formData = new FormData();
@@ -51,12 +44,16 @@ export async function transcribeAudio(uri: string, apiKey: string): Promise<stri
       type: 'audio/mp4',
     } as any);
   }
-  const response = await fetch(`${OPENAI_BASE}/audio/transcriptions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: formData,
-  });
-  if (!response.ok) throw await openaiError(response);
+  const response = await fetchWithRetry(
+    `${OPENAI_BASE}/audio/transcriptions`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: formData,
+    },
+    { timeoutMs: 60_000, retries: 1 },
+  );
+  if (!response.ok) throw await parseApiError(response, 'OpenAI Whisper');
   const json = await response.json();
   if (!json.text) throw new Error('Whisper lieferte keinen Text.');
   return json.text as string;
@@ -64,22 +61,26 @@ export async function transcribeAudio(uri: string, apiKey: string): Promise<stri
 
 // Transkript-Text per GPT in strukturierte Bestellfelder umwandeln
 export async function extractFields(text: string, apiKey: string): Promise<ParsedFields> {
-  const response = await fetch(`${OPENAI_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
+  const response = await fetchWithRetry(
+    `${OPENAI_BASE}/chat/completions`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
+          { role: 'user', content: text },
+        ],
+      }),
     },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
-        { role: 'user', content: text },
-      ],
-    }),
-  });
-  if (!response.ok) throw await openaiError(response);
+    { timeoutMs: 30_000, retries: 1 },
+  );
+  if (!response.ok) throw await parseApiError(response, 'OpenAI GPT');
   const json = await response.json();
   const content = json?.choices?.[0]?.message?.content;
   if (!content) throw new Error('GPT lieferte keine Antwort.');
@@ -94,8 +95,10 @@ export async function extractFields(text: string, apiKey: string): Promise<Parse
 
 // Schneller Verbindungstest für den Settings-Screen
 export async function testOpenAI(apiKey: string): Promise<void> {
-  const response = await fetch(`${OPENAI_BASE}/models/gpt-4o-mini`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-  if (!response.ok) throw await openaiError(response);
+  const response = await fetchWithRetry(
+    `${OPENAI_BASE}/models/gpt-4o-mini`,
+    { headers: { Authorization: `Bearer ${apiKey}` } },
+    { retries: 1 },
+  );
+  if (!response.ok) throw await parseApiError(response, 'OpenAI');
 }

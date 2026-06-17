@@ -30,7 +30,10 @@
         }
       ],
       "expo-secure-store",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-sharing",
+      "expo-asset",
+      "expo-status-bar"
     ]
   }
 }

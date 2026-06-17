@@ -6,15 +6,26 @@
 // - MwSt aus Produkt-Tax (associations.tax), Lieferanschrift in deliveries[], Zahlung Vorkasse in transactions[]
 // - Kunde wird erst beim Bestätigen angelegt (nicht mehr bei der Vorschau)
 import { ParsedFields, ShopPreview, deliveryFromFields, splitName } from './types';
+import { fetchWithRetry, parseApiError } from './http';
 
-export type ShopwareCreds = {
-  url: string;
-  clientId: string;
-  clientSecret: string;
+// Instanz-spezifische Shopware-IDs. Pro Shop unterschiedlich – in den Einstellungen
+// als JSON überschreibbar (siehe parseShopwareIds), sonst gelten die Defaults unten.
+export type ShopwareIds = {
+  currencyId: string;
+  languageId: string;
+  salesChannelId: string;
+  orderStateOpen: string;
+  countryId: string;
+  salutationId: string;
+  customerGroupId: string;
+  paymentVorkasse: string;
+  transactionStateOpen: string;
+  shippingStandard: string;
+  deliveryStateOpen: string;
 };
 
-// Instanz-spezifische IDs (aus dem bisherigen Workflow übernommen; Testshop yakuza.bravion.de)
-const IDS = {
+// Defaults aus dem bisherigen Workflow übernommen (Testshop yakuza.bravion.de).
+export const DEFAULT_SHOPWARE_IDS: ShopwareIds = {
   currencyId: 'b7d2554b0ce847cd82f3ac9bd1c0dfca',
   languageId: '2fbb5fe2e29a4d70aa5854ce7ce3e20b',
   salesChannelId: '019c14a31441723b8a3a5173f49b5795',
@@ -28,57 +39,99 @@ const IDS = {
   deliveryStateOpen: '019c14a2d1a7702188e8cd5c47967563',
 };
 
+export type ShopwareCreds = {
+  url: string;
+  clientId: string;
+  clientSecret: string;
+  // Optionaler Override der Instanz-IDs (gemerged über DEFAULT_SHOPWARE_IDS).
+  ids?: Partial<ShopwareIds>;
+};
+
+// JSON-String aus den Einstellungen robust in ein ShopwareIds-Teilobjekt parsen.
+// Leerer/ungültiger Input -> {} (es gelten dann die Defaults).
+export function parseShopwareIds(json: string | undefined | null): Partial<ShopwareIds> {
+  if (!json || !json.trim()) return {};
+  try {
+    const parsed = JSON.parse(json);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const out: Partial<ShopwareIds> = {};
+    for (const key of Object.keys(DEFAULT_SHOPWARE_IDS) as (keyof ShopwareIds)[]) {
+      const v = parsed[key];
+      if (typeof v === 'string' && v.trim()) out[key] = v.trim();
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+const effectiveIds = (creds: ShopwareCreds): ShopwareIds => ({
+  ...DEFAULT_SHOPWARE_IDS,
+  ...(creds.ids || {}),
+});
+
 let tokenCache: { key: string; token: string; expiresAt: number } | null = null;
 
 const cleanUrl = (url: string) => url.trim().replace(/\/+$/, '');
-
-async function swError(response: Response, context: string): Promise<Error> {
-  let msg = `${context}: HTTP ${response.status}`;
-  try {
-    const j = await response.json();
-    const detail = j?.errors?.[0]?.detail || j?.errors?.[0]?.title || j?.message;
-    if (detail) msg += ` – ${detail}`;
-  } catch {}
-  return new Error(msg);
-}
 
 export async function getShopwareToken(creds: ShopwareCreds): Promise<string> {
   const key = `${creds.url}|${creds.clientId}`;
   if (tokenCache && tokenCache.key === key && tokenCache.expiresAt > Date.now() + 30_000) {
     return tokenCache.token;
   }
-  const response = await fetch(`${cleanUrl(creds.url)}/api/oauth/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'client_credentials',
-      client_id: creds.clientId,
-      client_secret: creds.clientSecret,
-    }),
-  });
-  if (!response.ok) throw await swError(response, 'Shopware-Anmeldung fehlgeschlagen');
+  const response = await fetchWithRetry(
+    `${cleanUrl(creds.url)}/api/oauth/token`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: creds.clientId,
+        client_secret: creds.clientSecret,
+      }),
+    },
+    { retries: 2 },
+  );
+  if (!response.ok) throw await parseApiError(response, 'Shopware-Anmeldung fehlgeschlagen');
   const json = await response.json();
-  tokenCache = { key, token: json.access_token, expiresAt: Date.now() + (json.expires_in || 600) * 1000 };
+  tokenCache = {
+    key,
+    token: json.access_token,
+    expiresAt: Date.now() + (json.expires_in || 600) * 1000,
+  };
   return json.access_token;
 }
 
-async function swSearch(creds: ShopwareCreds, token: string, entity: string, payload: any): Promise<{ total: number; data: any[] }> {
-  const response = await fetch(`${cleanUrl(creds.url)}/api/search/${entity}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: `Bearer ${token}`,
+async function swSearch(
+  creds: ShopwareCreds,
+  token: string,
+  entity: string,
+  payload: any,
+): Promise<{ total: number; data: any[] }> {
+  const response = await fetchWithRetry(
+    `${cleanUrl(creds.url)}/api/search/${entity}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
     },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) throw await swError(response, `Shopware-Suche ${entity}`);
+    { retries: 2 },
+  );
+  if (!response.ok) throw await parseApiError(response, `Shopware-Suche ${entity}`);
   const json = await response.json();
   // top-level `total`; defensiv auch meta.total unterstützen
   return { total: json.total ?? json.meta?.total ?? 0, data: json.data || [] };
 }
 
-async function findCustomerByEmail(creds: ShopwareCreds, token: string, email: string): Promise<any | null> {
+async function findCustomerByEmail(
+  creds: ShopwareCreds,
+  token: string,
+  email: string,
+): Promise<any | null> {
   const res = await swSearch(creds, token, 'customer', {
     filter: [{ type: 'equals', field: 'email', value: email }],
     associations: { defaultBillingAddress: {} },
@@ -86,16 +139,29 @@ async function findCustomerByEmail(creds: ShopwareCreds, token: string, email: s
   return res.total > 0 ? res.data[0] : null;
 }
 
-async function findProduct(creds: ShopwareCreds, token: string, fields: ParsedFields): Promise<any | null> {
+async function findProduct(
+  creds: ShopwareCreds,
+  token: string,
+  fields: ParsedFields,
+): Promise<any | null> {
   const payload = fields.productNumber
-    ? { filter: [{ type: 'equals', field: 'productNumber', value: fields.productNumber }], associations: { tax: {} } }
-    : { filter: [{ type: 'contains', field: 'name', value: fields.productName }], associations: { tax: {} } };
+    ? {
+        filter: [{ type: 'equals', field: 'productNumber', value: fields.productNumber }],
+        associations: { tax: {} },
+      }
+    : {
+        filter: [{ type: 'contains', field: 'name', value: fields.productName }],
+        associations: { tax: {} },
+      };
   const res = await swSearch(creds, token, 'product', payload);
   return res.data.length > 0 ? res.data[0] : null;
 }
 
 // Vorschau OHNE Nebenwirkungen: Kunde wird nur gesucht, nie angelegt
-export async function shopwarePreview(fields: ParsedFields, creds: ShopwareCreds): Promise<ShopPreview> {
+export async function shopwarePreview(
+  fields: ParsedFields,
+  creds: ShopwareCreds,
+): Promise<ShopPreview> {
   const token = await getShopwareToken(creds);
   const [customer, product] = await Promise.all([
     findCustomerByEmail(creds, token, fields.customerEmail),
@@ -124,9 +190,15 @@ export async function shopwarePreview(fields: ParsedFields, creds: ShopwareCreds
   };
 }
 
-async function createCustomer(creds: ShopwareCreds, token: string, fields: ParsedFields): Promise<any> {
+async function createCustomer(
+  creds: ShopwareCreds,
+  token: string,
+  fields: ParsedFields,
+): Promise<any> {
   const { firstName, lastName } = splitName(fields.customerName);
-  const response = await fetch(`${cleanUrl(creds.url)}/api/customer?_response=basic`, {
+  const ids = effectiveIds(creds);
+  // Kunde anlegen = nicht idempotent -> kein Auto-Retry (Doppelanlage vermeiden).
+  const response = await fetchWithRetry(`${cleanUrl(creds.url)}/api/customer?_response=basic`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -137,10 +209,10 @@ async function createCustomer(creds: ShopwareCreds, token: string, fields: Parse
       firstName,
       lastName,
       email: fields.customerEmail,
-      salutationId: IDS.salutationId,
-      groupId: IDS.customerGroupId,
-      defaultPaymentMethodId: IDS.paymentVorkasse,
-      salesChannelId: IDS.salesChannelId,
+      salutationId: ids.salutationId,
+      groupId: ids.customerGroupId,
+      defaultPaymentMethodId: ids.paymentVorkasse,
+      salesChannelId: ids.salesChannelId,
       customerNumber: Math.floor(Math.random() * 100000).toString(),
       defaultBillingAddress: {
         firstName,
@@ -148,12 +220,12 @@ async function createCustomer(creds: ShopwareCreds, token: string, fields: Parse
         street: fields.customerStreet || 'Dummy Str. 1',
         zipcode: fields.customerZip || '12345',
         city: fields.customerCity || 'Dummy City',
-        countryId: IDS.countryId,
-        salutationId: IDS.salutationId,
+        countryId: ids.countryId,
+        salutationId: ids.salutationId,
       },
     }),
   });
-  if (!response.ok) throw await swError(response, 'Shopware-Kunde anlegen');
+  if (!response.ok) throw await parseApiError(response, 'Shopware-Kunde anlegen');
   const json = await response.json();
   const created = json.data || json;
   if (!created.id) throw new Error('Shopware-Kunde angelegt, aber keine ID erhalten.');
@@ -161,10 +233,12 @@ async function createCustomer(creds: ShopwareCreds, token: string, fields: Parse
 }
 
 async function reserveOrderNumber(creds: ShopwareCreds, token: string): Promise<string> {
-  const response = await fetch(`${cleanUrl(creds.url)}/api/_action/number-range/reserve/order`, {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) throw await swError(response, 'Bestellnummer reservieren');
+  const response = await fetchWithRetry(
+    `${cleanUrl(creds.url)}/api/_action/number-range/reserve/order`,
+    { headers: { Accept: 'application/json', Authorization: `Bearer ${token}` } },
+    { retries: 1 },
+  );
+  if (!response.ok) throw await parseApiError(response, 'Bestellnummer reservieren');
   const json = await response.json();
   if (!json.number) throw new Error('Keine Bestellnummer vom NumberRange erhalten.');
   return String(json.number);
@@ -175,9 +249,10 @@ const round2 = (v: number) => Math.round(v * 100) / 100;
 // Bestellung anlegen. Legt den Kunden hier (und erst hier) an, falls er noch nicht existiert.
 export async function shopwareConfirmOrder(
   fields: ParsedFields,
-  creds: ShopwareCreds
+  creds: ShopwareCreds,
 ): Promise<{ orderNumber: string; total: number; customerWasCreated: boolean }> {
   const token = await getShopwareToken(creds);
+  const ids = effectiveIds(creds);
 
   let customer = await findCustomerByEmail(creds, token, fields.customerEmail);
   let customerWasCreated = false;
@@ -209,15 +284,17 @@ export async function shopwareConfirmOrder(
   const addrSrc = customer.defaultBillingAddress || {};
   const deliv = deliveryFromFields(fields);
   const delivName = splitName(deliv.name || '');
-  const billName = splitName(fields.customerName || `${customer.firstName || ''} ${customer.lastName || ''}`);
+  const billName = splitName(
+    fields.customerName || `${customer.firstName || ''} ${customer.lastName || ''}`,
+  );
   const shippingOrderAddress = {
     firstName: deliv.name ? delivName.firstName : customer.firstName || billName.firstName,
     lastName: deliv.name ? delivName.lastName : customer.lastName || billName.lastName,
     street: deliv.street || fields.customerStreet || addrSrc.street || 'Unbekannt',
     zipcode: deliv.zip || fields.customerZip || addrSrc.zipcode || '',
     city: deliv.city || fields.customerCity || addrSrc.city || 'Unbekannt',
-    countryId: addrSrc.countryId || IDS.countryId,
-    salutationId: IDS.salutationId,
+    countryId: addrSrc.countryId || ids.countryId,
+    salutationId: ids.salutationId,
   };
 
   const orderPayload = {
@@ -228,12 +305,12 @@ export async function shopwareConfirmOrder(
       firstName: customer.firstName || billName.firstName,
       lastName: customer.lastName || billName.lastName,
     },
-    currencyId: IDS.currencyId,
+    currencyId: ids.currencyId,
     currencyFactor: 1,
-    languageId: IDS.languageId,
-    salesChannelId: IDS.salesChannelId,
+    languageId: ids.languageId,
+    salesChannelId: ids.salesChannelId,
     billingAddressId,
-    stateId: IDS.orderStateOpen,
+    stateId: ids.orderStateOpen,
     orderDateTime: new Date().toISOString(),
     itemRounding: rounding,
     totalRounding: rounding,
@@ -255,15 +332,15 @@ export async function shopwareConfirmOrder(
     },
     transactions: [
       {
-        paymentMethodId: IDS.paymentVorkasse,
-        stateId: IDS.transactionStateOpen,
+        paymentMethodId: ids.paymentVorkasse,
+        stateId: ids.transactionStateOpen,
         amount: { unitPrice: total, totalPrice: total, quantity: 1, calculatedTaxes, taxRules },
       },
     ],
     deliveries: [
       {
-        stateId: IDS.deliveryStateOpen,
-        shippingMethodId: IDS.shippingStandard,
+        stateId: ids.deliveryStateOpen,
+        shippingMethodId: ids.shippingStandard,
         shippingCosts: {
           unitPrice: 0,
           totalPrice: 0,
@@ -292,7 +369,8 @@ export async function shopwareConfirmOrder(
     ],
   };
 
-  const response = await fetch(`${cleanUrl(creds.url)}/api/order?_response=basic`, {
+  // Bestellung anlegen = nicht idempotent -> kein Auto-Retry (Doppelbestellung vermeiden).
+  const response = await fetchWithRetry(`${cleanUrl(creds.url)}/api/order?_response=basic`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -301,7 +379,7 @@ export async function shopwareConfirmOrder(
     },
     body: JSON.stringify(orderPayload),
   });
-  if (!response.ok) throw await swError(response, 'Shopware-Bestellung anlegen');
+  if (!response.ok) throw await parseApiError(response, 'Shopware-Bestellung anlegen');
   return { orderNumber, total, customerWasCreated };
 }
 
@@ -313,10 +391,18 @@ export async function testShopware(creds: ShopwareCreds): Promise<void> {
 
 // Alle (Haupt-)Produkte seitenweise für den lokalen Katalog laden
 export async function fetchAllShopwareProducts(
-  creds: ShopwareCreds
-): Promise<{ externalId: string; number: string; name: string; priceGross: number; taxRate: number | null }[]> {
+  creds: ShopwareCreds,
+): Promise<
+  { externalId: string; number: string; name: string; priceGross: number; taxRate: number | null }[]
+> {
   const token = await getShopwareToken(creds);
-  const out: { externalId: string; number: string; name: string; priceGross: number; taxRate: number | null }[] = [];
+  const out: {
+    externalId: string;
+    number: string;
+    name: string;
+    priceGross: number;
+    taxRate: number | null;
+  }[] = [];
   let page = 1;
   const limit = 100;
   for (;;) {

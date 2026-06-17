@@ -23,7 +23,10 @@ export async function listTranscripts(): Promise<Transcript[]> {
   return list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
-export async function saveTranscript(transcriptText: string, fields: ParsedFields): Promise<Transcript> {
+export async function saveTranscript(
+  transcriptText: string,
+  fields: ParsedFields,
+): Promise<Transcript> {
   const t: Transcript = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     createdAt: new Date().toISOString(),
@@ -45,7 +48,11 @@ export async function updateTranscriptFields(id: string, fields: ParsedFields): 
   await persist(list);
 }
 
-export async function markTranscriptSent(id: string, target: TargetSystem, resultInfo: string): Promise<void> {
+export async function markTranscriptSent(
+  id: string,
+  target: TargetSystem,
+  resultInfo: string,
+): Promise<void> {
   const list = await load();
   const t = list.find((x) => x.id === id);
   if (!t) return;

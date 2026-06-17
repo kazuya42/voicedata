@@ -13,6 +13,7 @@ export type CredKey =
   | 'shopwareUrl'
   | 'shopwareClientId'
   | 'shopwareClientSecret'
+  | 'shopwareIds'
   | 'shopifyDomain'
   | 'shopifyToken'
   | 'hubspotToken'
@@ -47,6 +48,7 @@ const ALL_KEYS: CredKey[] = [
   'shopwareUrl',
   'shopwareClientId',
   'shopwareClientSecret',
+  'shopwareIds',
   'shopifyDomain',
   'shopifyToken',
   'hubspotToken',
@@ -59,7 +61,5 @@ export async function getAllCreds(): Promise<AllCreds> {
 }
 
 export async function setAllCreds(creds: Partial<AllCreds>): Promise<void> {
-  await Promise.all(
-    (Object.keys(creds) as CredKey[]).map((k) => setCred(k, creds[k] ?? ''))
-  );
+  await Promise.all((Object.keys(creds) as CredKey[]).map((k) => setCred(k, creds[k] ?? '')));
 }

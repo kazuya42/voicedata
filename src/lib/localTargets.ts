@@ -5,7 +5,8 @@ import { ParsedFields, TextPreview } from './types';
 const esc = (v: unknown) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
 
 export function buildCsv(fields: ParsedFields): TextPreview {
-  const header = 'Kunde,Email,Strasse,PLZ,Ort,Produkt,Menge,LieferEmpfaenger,LieferStrasse,LieferPLZ,LieferOrt';
+  const header =
+    'Kunde,Email,Strasse,PLZ,Ort,Produkt,Menge,LieferEmpfaenger,LieferStrasse,LieferPLZ,LieferOrt';
   const row = [
     fields.customerName,
     fields.customerEmail,
