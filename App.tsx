@@ -54,7 +54,7 @@ import { validateForTarget } from './src/lib/validate';
 import { shopifyPreview, shopifyConfirmOrder } from './src/lib/shopify';
 import { tiktokPreview, tiktokConfirmOrder } from './src/lib/tiktok';
 import { hubspotPreview, hubspotConfirm } from './src/lib/hubspot';
-import { buildCsv, buildEmailText, buildSheetsRow } from './src/lib/localTargets';
+import { buildCsv, buildEmailText, buildSheetsRow, pushToGoogleSheets } from './src/lib/localTargets';
 import { searchCatalog } from './src/lib/catalog';
 import { saveTranscript, markTranscriptSent, updateTranscriptFields } from './src/lib/transcripts';
 import {
@@ -422,6 +422,10 @@ export default function App() {
         const hp = previewData as HubspotPreview;
         const result = await hubspotConfirm(fields, { token }, hp.amount);
         successMessage = `HubSpot: Kontakt ${result.contactWasCreated ? 'angelegt' : 'aktualisiert'} und Deal „${result.dealName}" erstellt.`;
+      } else if (type === 'google_sheets') {
+        const scriptUrl = await getCred('googleScriptUrl');
+        await pushToGoogleSheets(fields, scriptUrl);
+        successMessage = 'Zeile erfolgreich in Google Sheets eingetragen.';
       } else {
         return;
       }

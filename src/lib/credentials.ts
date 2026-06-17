@@ -21,7 +21,8 @@ export type CredKey =
   | 'tiktokAccessToken'
   | 'tiktokShopCipher'
   | 'hubspotToken'
-  | 'googleSheetId';
+  | 'googleSheetId'
+  | 'googleScriptUrl';
 
 export async function getCred(key: CredKey): Promise<string> {
   try {
@@ -61,6 +62,7 @@ const ALL_KEYS: CredKey[] = [
   'tiktokShopCipher',
   'hubspotToken',
   'googleSheetId',
+  'googleScriptUrl',
 ];
 
 export async function getAllCreds(): Promise<AllCreds> {

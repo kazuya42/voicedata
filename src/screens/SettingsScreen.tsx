@@ -47,6 +47,7 @@ const emptyCreds: AllCreds = {
   tiktokShopCipher: '',
   hubspotToken: '',
   googleSheetId: '',
+  googleScriptUrl: '',
 };
 
 const SHOPWARE_IDS_PLACEHOLDER = JSON.stringify(DEFAULT_SHOPWARE_IDS, null, 2);
@@ -407,7 +408,13 @@ export default function SettingsScreen() {
 
       <Section title="GOOGLE SHEETS">
         <Field
-          label="Sheet-ID (für Tabellen-Export)"
+          label="Apps Script URL (für direkten Push)"
+          value={creds.googleScriptUrl}
+          onChange={update('googleScriptUrl')}
+          placeholder="https://script.google.com/macros/s/…/exec"
+        />
+        <Field
+          label="Sheet-ID (optional, für Vorschau-Link)"
           value={creds.googleSheetId}
           onChange={update('googleSheetId')}
           placeholder="1a2b3c4d…"
