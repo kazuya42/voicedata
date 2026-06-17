@@ -18,7 +18,7 @@ export const isValidUrl = (url: string): boolean => {
 export const isValidGermanZip = (zip: string): boolean => /^\d{5}$/.test((zip || '').trim());
 
 // Ziele, die an ein externes CRM/Shop-System gehen und valide Felder brauchen.
-const STRICT_TARGETS: TargetSystem[] = ['shopware', 'shopify', 'hubspot'];
+const STRICT_TARGETS: TargetSystem[] = ['shopware', 'shopify', 'tiktok_shop', 'hubspot'];
 
 // Prüft die Felder für ein Ziel und liefert eine Liste menschenlesbarer Fehler (leer = ok).
 export function validateForTarget(fields: ParsedFields, target: TargetSystem): string[] {

@@ -52,6 +52,7 @@ import { transcribeAudio, extractFields } from './src/lib/openai';
 import { shopwarePreview, shopwareConfirmOrder, parseShopwareIds } from './src/lib/shopware';
 import { validateForTarget } from './src/lib/validate';
 import { shopifyPreview, shopifyConfirmOrder } from './src/lib/shopify';
+import { tiktokPreview, tiktokConfirmOrder } from './src/lib/tiktok';
 import { hubspotPreview, hubspotConfirm } from './src/lib/hubspot';
 import { buildCsv, buildEmailText, buildSheetsRow } from './src/lib/localTargets';
 import { searchCatalog } from './src/lib/catalog';
@@ -72,13 +73,14 @@ type Tab = 'record' | 'transcripts' | 'settings';
 const TARGETS: { key: TargetSystem; label: string }[] = [
   { key: 'shopware', label: 'Shopware' },
   { key: 'shopify', label: 'Shopify' },
+  { key: 'tiktok_shop', label: 'TikTok Shop' },
   { key: 'hubspot', label: 'HubSpot' },
   { key: 'email', label: 'E-Mail' },
   { key: 'google_sheets', label: 'Sheets' },
   { key: 'csv', label: 'CSV' },
 ];
 
-const WEB_BLOCKED_TARGETS: TargetSystem[] = ['shopware', 'shopify', 'hubspot'];
+const WEB_BLOCKED_TARGETS: TargetSystem[] = ['shopware', 'shopify', 'tiktok_shop', 'hubspot'];
 
 // Maximale Aufnahmedauer (5 Minuten) – danach automatischer Stopp.
 const MAX_RECORDING_MS = 5 * 60 * 1000;
@@ -155,7 +157,6 @@ export default function App() {
       const db = recorderState.metering ?? -160;
       const clamped = Math.max(-60, Math.min(0, db));
       const height = 5 + ((clamped + 60) / 60) * 35;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setWaveform((prev) => [...prev.slice(1), height]);
     } else {
       setWaveform(Array(30).fill(5));
@@ -342,6 +343,16 @@ export default function App() {
         ]);
         if (!domain || !token) throw new Error('Shopify-Zugangsdaten fehlen (Einstellungen).');
         preview = await shopifyPreview(fields, { domain, token });
+      } else if (targetSystem === 'tiktok_shop') {
+        const [appKey, appSecret, accessToken, shopCipher] = await Promise.all([
+          getCred('tiktokAppKey'),
+          getCred('tiktokAppSecret'),
+          getCred('tiktokAccessToken'),
+          getCred('tiktokShopCipher'),
+        ]);
+        if (!appKey || !appSecret || !accessToken || !shopCipher)
+          throw new Error('TikTok Shop Zugangsdaten fehlen (Einstellungen).');
+        preview = await tiktokPreview(fields, { appKey, appSecret, accessToken, shopCipher });
       } else if (targetSystem === 'hubspot') {
         const token = await getCred('hubspotToken');
         if (!token) throw new Error('HubSpot-Token fehlt (Einstellungen).');
@@ -397,6 +408,15 @@ export default function App() {
         ]);
         const result = await shopifyConfirmOrder(fields, { domain, token });
         successMessage = `Bestellung ${result.orderNumber} erfolgreich in Shopify angelegt (${result.total.toFixed(2)}).`;
+      } else if (type === 'tiktok_preview') {
+        const [appKey, appSecret, accessToken, shopCipher] = await Promise.all([
+          getCred('tiktokAppKey'),
+          getCred('tiktokAppSecret'),
+          getCred('tiktokAccessToken'),
+          getCred('tiktokShopCipher'),
+        ]);
+        const result = await tiktokConfirmOrder(fields, { appKey, appSecret, accessToken, shopCipher });
+        successMessage = `Bestellung ${result.orderNumber} erfolgreich in TikTok Shop angelegt (${result.total.toFixed(2)} €).`;
       } else if (type === 'hubspot_preview') {
         const token = await getCred('hubspotToken');
         const hp = previewData as HubspotPreview;
@@ -518,7 +538,7 @@ export default function App() {
   const onProductInput = (text: string, kind: 'number' | 'name') => {
     if (kind === 'number') setEditProdNumber(text);
     else setEditProdName(text);
-    if (targetSystem === 'shopware' || targetSystem === 'shopify') {
+    if (targetSystem === 'shopware' || targetSystem === 'shopify' || targetSystem === 'tiktok_shop') {
       setSuggestions(text.trim().length >= 2 ? searchCatalog(targetSystem, text) : []);
     } else {
       setSuggestions([]);
@@ -548,7 +568,9 @@ export default function App() {
 
   const shopPreview =
     previewData &&
-    (previewData.type === 'shopware_preview' || previewData.type === 'shopify_preview')
+    (previewData.type === 'shopware_preview' ||
+      previewData.type === 'shopify_preview' ||
+      previewData.type === 'tiktok_preview')
       ? (previewData as ShopPreview)
       : null;
   const hubspotPrev =
@@ -1102,6 +1124,7 @@ export default function App() {
               <Text style={styles.modalTitle}>
                 {previewData?.type === 'shopware_preview' && 'Vorschau: Shopware Bestellung'}
                 {previewData?.type === 'shopify_preview' && 'Vorschau: Shopify Bestellung'}
+                {previewData?.type === 'tiktok_preview' && 'Vorschau: TikTok Shop Bestellung'}
                 {previewData?.type === 'hubspot_preview' && 'Vorschau: HubSpot Kontakt + Deal'}
                 {previewData?.type === 'csv' && 'Vorschau: CSV Export'}
                 {previewData?.type === 'email' && 'Vorschau: E-Mail Entwurf'}

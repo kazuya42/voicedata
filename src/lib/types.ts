@@ -30,7 +30,14 @@ export const emptyFields = (): ParsedFields => ({
   deliveryCity: '',
 });
 
-export type TargetSystem = 'shopware' | 'shopify' | 'hubspot' | 'email' | 'google_sheets' | 'csv';
+export type TargetSystem =
+  | 'shopware'
+  | 'shopify'
+  | 'tiktok_shop'
+  | 'hubspot'
+  | 'email'
+  | 'google_sheets'
+  | 'csv';
 
 export type PreviewCustomer = {
   name: string;
@@ -60,7 +67,7 @@ export type PreviewDelivery = {
 };
 
 export type ShopPreview = {
-  type: 'shopware_preview' | 'shopify_preview';
+  type: 'shopware_preview' | 'shopify_preview' | 'tiktok_preview';
   customer: PreviewCustomer;
   product: PreviewProduct;
   delivery: PreviewDelivery;
@@ -94,7 +101,7 @@ export type Transcript = {
   resultInfo?: string;
 };
 
-export type CatalogShop = 'shopware' | 'shopify';
+export type CatalogShop = 'shopware' | 'shopify' | 'tiktok_shop';
 
 export type CatalogProduct = {
   shop: CatalogShop;

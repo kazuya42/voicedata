@@ -16,6 +16,10 @@ export type CredKey =
   | 'shopwareIds'
   | 'shopifyDomain'
   | 'shopifyToken'
+  | 'tiktokAppKey'
+  | 'tiktokAppSecret'
+  | 'tiktokAccessToken'
+  | 'tiktokShopCipher'
   | 'hubspotToken'
   | 'googleSheetId';
 
@@ -51,6 +55,10 @@ const ALL_KEYS: CredKey[] = [
   'shopwareIds',
   'shopifyDomain',
   'shopifyToken',
+  'tiktokAppKey',
+  'tiktokAppSecret',
+  'tiktokAccessToken',
+  'tiktokShopCipher',
   'hubspotToken',
   'googleSheetId',
 ];

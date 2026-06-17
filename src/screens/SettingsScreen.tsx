@@ -16,6 +16,7 @@ import { AllCreds, getAllCreds, isSecureStorage, setAllCreds } from '../lib/cred
 import { testOpenAI } from '../lib/openai';
 import { fetchAllShopwareProducts, testShopware, DEFAULT_SHOPWARE_IDS } from '../lib/shopware';
 import { fetchAllShopifyProducts, testShopify } from '../lib/shopify';
+import { testTikTok, fetchAllTikTokProducts } from '../lib/tiktok';
 import { testHubspot } from '../lib/hubspot';
 import { catalogCount, replaceCatalog } from '../lib/catalog';
 import { CatalogShop } from '../lib/types';
@@ -26,9 +27,11 @@ type Busy =
   | 'openai'
   | 'shopware'
   | 'shopify'
+  | 'tiktok'
   | 'hubspot'
   | 'sync_shopware'
-  | 'sync_shopify';
+  | 'sync_shopify'
+  | 'sync_tiktok';
 
 const emptyCreds: AllCreds = {
   openaiKey: '',
@@ -38,6 +41,10 @@ const emptyCreds: AllCreds = {
   shopwareIds: '',
   shopifyDomain: '',
   shopifyToken: '',
+  tiktokAppKey: '',
+  tiktokAppSecret: '',
+  tiktokAccessToken: '',
+  tiktokShopCipher: '',
   hubspotToken: '',
   googleSheetId: '',
 };
@@ -107,10 +114,13 @@ function ActionBtn(props: {
 export default function SettingsScreen() {
   const [creds, setCreds] = useState<AllCreds>(emptyCreds);
   const [busy, setBusy] = useState<Busy>('');
-  const [counts, setCounts] = useState<{ shopware: number; shopify: number }>(() => ({
-    shopware: catalogCount('shopware'),
-    shopify: catalogCount('shopify'),
-  }));
+  const [counts, setCounts] = useState<{ shopware: number; shopify: number; tiktok: number }>(
+    () => ({
+      shopware: catalogCount('shopware'),
+      shopify: catalogCount('shopify'),
+      tiktok: catalogCount('tiktok_shop'),
+    }),
+  );
 
   useEffect(() => {
     getAllCreds().then(setCreds);
@@ -145,26 +155,37 @@ export default function SettingsScreen() {
   };
 
   const runSync = async (shop: CatalogShop) => {
-    setBusy(shop === 'shopware' ? 'sync_shopware' : 'sync_shopify');
+    const busyKey: Busy =
+      shop === 'shopware' ? 'sync_shopware' : shop === 'shopify' ? 'sync_shopify' : 'sync_tiktok';
+    setBusy(busyKey);
     try {
       await setAllCreds(creds);
-      const products =
-        shop === 'shopware'
-          ? await fetchAllShopwareProducts({
-              url: creds.shopwareUrl,
-              clientId: creds.shopwareClientId,
-              clientSecret: creds.shopwareClientSecret,
-            })
-          : await fetchAllShopifyProducts({
-              domain: creds.shopifyDomain,
-              token: creds.shopifyToken,
-            });
+      let products: { externalId: string; number: string; name: string; priceGross: number; taxRate: number | null }[];
+      if (shop === 'shopware') {
+        products = await fetchAllShopwareProducts({
+          url: creds.shopwareUrl,
+          clientId: creds.shopwareClientId,
+          clientSecret: creds.shopwareClientSecret,
+        });
+      } else if (shop === 'shopify') {
+        products = await fetchAllShopifyProducts({
+          domain: creds.shopifyDomain,
+          token: creds.shopifyToken,
+        });
+      } else {
+        products = await fetchAllTikTokProducts({
+          appKey: creds.tiktokAppKey,
+          appSecret: creds.tiktokAppSecret,
+          accessToken: creds.tiktokAccessToken,
+          shopCipher: creds.tiktokShopCipher,
+        });
+      }
       replaceCatalog(
         shop,
         products.map((p) => ({ shop, ...p })),
       );
       const n = catalogCount(shop);
-      setCounts((c) => ({ ...c, [shop]: n }));
+      setCounts((c) => ({ ...c, [shop === 'tiktok_shop' ? 'tiktok' : shop]: n }));
       Alert.alert('Artikel synchronisiert', `${n} Artikel lokal gespeichert.`);
     } catch (e: any) {
       Alert.alert('Sync fehlgeschlagen', e?.message || 'Unbekannter Fehler');
@@ -301,6 +322,61 @@ export default function SettingsScreen() {
             busyKey="sync_shopify"
             busy={busy}
             onPress={() => runSync('shopify')}
+          />
+        </View>
+      </Section>
+
+      <Section title="TIKTOK SHOP">
+        <Field
+          label="App Key"
+          value={creds.tiktokAppKey}
+          onChange={update('tiktokAppKey')}
+          placeholder="7xyz…"
+        />
+        <Field
+          label="App Secret"
+          value={creds.tiktokAppSecret}
+          onChange={update('tiktokAppSecret')}
+          placeholder="•••"
+          secure
+        />
+        <Field
+          label="Access Token (aus Seller Center)"
+          value={creds.tiktokAccessToken}
+          onChange={update('tiktokAccessToken')}
+          placeholder="ROW_…"
+          secure
+        />
+        <Field
+          label="Shop Cipher"
+          value={creds.tiktokShopCipher}
+          onChange={update('tiktokShopCipher')}
+          placeholder="ROW_…"
+        />
+        <View style={styles.btnRow}>
+          <ActionBtn
+            label="Verbindung testen"
+            busyKey="tiktok"
+            busy={busy}
+            onPress={() =>
+              runTest(
+                'tiktok',
+                () =>
+                  testTikTok({
+                    appKey: creds.tiktokAppKey,
+                    appSecret: creds.tiktokAppSecret,
+                    accessToken: creds.tiktokAccessToken,
+                    shopCipher: creds.tiktokShopCipher,
+                  }),
+                'TikTok Shop Verbindung funktioniert.',
+              )
+            }
+          />
+          <ActionBtn
+            label={`Artikel sync (${counts.tiktok})`}
+            busyKey="sync_tiktok"
+            busy={busy}
+            onPress={() => runSync('tiktok_shop')}
           />
         </View>
       </Section>
