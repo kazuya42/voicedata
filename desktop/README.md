@@ -39,7 +39,7 @@ npm test          # unit tests
 npm run typecheck
 npm start         # dev run – system audio permission is attributed to the terminal here
 npm run pack:mac  # release/mac-arm64/VoiceData Desktop.app – local test build, not notarized
-npm run dist:mac  # signed + notarized DMG and ZIP in release/ for other Macs
+npm run dist:mac  # signed + notarized DMG (app and DMG stapled) and ZIP in release/
 ```
 
 `pack:mac`/`dist:mac` first build `vendor/whisper-cli` from whisper.cpp v1.9.5 if it is missing

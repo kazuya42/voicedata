@@ -12,7 +12,7 @@
     "test": "vitest run",
     "vendor": "[ -x vendor/whisper-cli ] || scripts/build-whisper.sh",
     "pack:mac": "npm run vendor && npm run build && electron-builder --mac dir --arm64",
-    "dist:mac": "npm run vendor && npm run build && APPLE_KEYCHAIN_PROFILE=${APPLE_KEYCHAIN_PROFILE:-voicedata-notary} electron-builder --mac dmg zip --arm64"
+    "dist:mac": "npm run vendor && npm run build && APPLE_KEYCHAIN_PROFILE=${APPLE_KEYCHAIN_PROFILE:-voicedata-notary} electron-builder --mac dmg zip --arm64 && scripts/notarize-dmg.sh"
   },
   "devDependencies": {
     "@types/node": "^22",
