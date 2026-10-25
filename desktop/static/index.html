@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:"
+    />
+    <title>VoiceData Desktop</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>VoiceData</h1>
+        <p class="muted">Meeting-Aufnahme mit Live-Transkription</p>
+      </div>
+      <nav>
+        <button data-view="live" class="active">Live</button>
+        <button data-view="meetings">Meetings</button>
+        <button data-view="settings">Einstellungen</button>
+      </nav>
+    </header>
+
+    <div id="banner" class="banner hidden"></div>
+
+    <main>
+      <section id="view-live" class="view">
+        <div class="capture-row">
+          <button id="capture-toggle" class="toggle">Meeting-Aufnahme starten</button>
+          <div>
+            <div id="capture-status" class="status">Aus</div>
+            <div id="queue-status" class="muted"></div>
+          </div>
+        </div>
+        <p class="muted hint">
+          Tipp: Mit Kopfhörern nutzen – sonst landet die Stimme der Teilnehmer auch auf dem Mikrofon
+          (doppelt).
+        </p>
+        <div id="live-list" class="transcript"></div>
+      </section>
+
+      <section id="view-meetings" class="view hidden">
+        <div id="sessions-list"></div>
+        <div id="session-detail" class="hidden">
+          <div class="detail-head">
+            <button id="detail-back" class="link">‹ Zurück</button>
+            <input id="detail-title" type="text" />
+          </div>
+          <p id="detail-meta" class="muted"></p>
+          <div class="actions">
+            <button id="detail-copy">Kopieren</button>
+            <button id="detail-export">Als Markdown exportieren</button>
+            <button id="detail-retry" class="hidden">Fehlgeschlagene erneut transkribieren</button>
+            <button id="detail-summarize">Zusammenfassung erstellen</button>
+            <button id="detail-webhook" class="hidden">An n8n senden</button>
+            <button id="detail-delete" class="danger">Löschen</button>
+          </div>
+          <div id="detail-insights" class="insights"></div>
+          <div id="detail-list" class="transcript"></div>
+        </div>
+      </section>
+
+      <section id="view-settings" class="view hidden">
+        <h2>Transkription</h2>
+        <label class="radio">
+          <input type="radio" name="engine" value="local" />
+          Lokal (Whisper auf diesem Mac, kostenlos, offline)
+        </label>
+        <label class="radio">
+          <input type="radio" name="engine" value="openai" />
+          OpenAI (gpt-transcribe, API-Key, kostenpflichtig)
+        </label>
+
+        <label class="field">
+          Lokales Modell
+          <select id="local-model">
+            <option value="base">base – 148 MB</option>
+            <option value="small">small – 488 MB (empfohlen)</option>
+            <option value="large-v3-turbo-q5_0">large-v3-turbo – 574 MB (beste Qualität)</option>
+          </select>
+        </label>
+        <div class="model-row">
+          <span id="model-state" class="muted"></span>
+          <button id="model-download">Herunterladen</button>
+        </div>
+
+        <label class="field">
+          Sprache
+          <select id="language">
+            <option value="de">Deutsch</option>
+            <option value="en">Englisch</option>
+            <option value="auto">Automatisch</option>
+          </select>
+        </label>
+
+        <h2>Quellen</h2>
+        <label class="check"><input id="capture-mic" type="checkbox" /> Mikrofon aufnehmen</label>
+        <label class="check">
+          <input id="capture-system" type="checkbox" /> Systemaudio aufnehmen (Meeting-Teilnehmer)
+        </label>
+
+        <h2>OpenAI</h2>
+        <label class="field">
+          API-Key <span id="key-state" class="muted"></span>
+          <input id="openai-key" type="password" placeholder="sk-…" autocomplete="off" />
+        </label>
+        <div class="actions">
+          <button id="openai-test">Verbindung testen</button>
+        </div>
+
+        <h2>Nach dem Meeting</h2>
+        <label class="check">
+          <input id="auto-summary" type="checkbox" /> Automatisch zusammenfassen (Überblick,
+          Kernpunkte, To-dos – nutzt den OpenAI-Key)
+        </label>
+        <label class="check">
+          <input id="webhook-enabled" type="checkbox" /> An n8n-Webhook senden (Zusammenfassung,
+          Statistik, Transkript als JSON)
+        </label>
+        <label class="field">
+          Webhook-URL
+          <input
+            id="webhook-url"
+            type="text"
+            placeholder="https://n8n.domain.com/webhook/…"
+            autocomplete="off"
+          />
+        </label>
+        <div class="actions">
+          <button id="webhook-test">Webhook testen</button>
+          <button id="settings-save" class="primary">Speichern</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="../dist/renderer.js"></script>
+  </body>
+</html>

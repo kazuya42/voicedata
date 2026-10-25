@@ -1,0 +1,42 @@
+{
+  "name": "voicedata-desktop",
+  "productName": "VoiceData Desktop",
+  "version": "1.0.0",
+  "description": "VoiceData Desktop – Meeting-Aufnahme mit Live-Transkription",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack:mac": "npm run build && electron-builder --mac dir"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.9.2",
+    "vitest": "^5.0.5"
+  },
+  "build": {
+    "appId": "de.voicedata.desktop",
+    "files": [
+      "dist/**",
+      "static/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "VoiceData nimmt dein Mikrofon in Meetings auf, um sie zu transkribieren.",
+        "NSAudioCaptureUsageDescription": "VoiceData nimmt den Systemton (Meeting-Teilnehmer) auf, um ihn zu transkribieren."
+      }
+    }
+  }
+}
