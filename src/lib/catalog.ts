@@ -69,9 +69,9 @@ export function searchCatalog(
   limit: number = 8,
 ): CatalogProduct[] {
   const q = (query || '').trim();
-  if (!q) return [];
   const d = getDb();
   if (!d) {
+    if (!q) return memStore.filter((p) => p.shop === shop).slice(0, limit);
     const lq = q.toLowerCase();
     return memStore
       .filter(
@@ -81,13 +81,24 @@ export function searchCatalog(
       )
       .slice(0, limit);
   }
-  return d.getAllSync<CatalogProduct>(
+  if (!q) {
+    // Leere Suche: erste N Artikel alphabetisch zurückgeben (für "Alle anzeigen")
+    const rows = d.getAllSync<CatalogProduct>(
+      'SELECT shop, externalId, number, name, priceGross, taxRate FROM products WHERE shop = ? ORDER BY name LIMIT ?',
+      [shop, limit],
+    );
+    console.log(`[catalog] empty query, shop=${shop}, count=${rows.length}`);
+    return rows;
+  }
+  const rows = d.getAllSync<CatalogProduct>(
     `SELECT shop, externalId, number, name, priceGross, taxRate FROM products
      WHERE shop = ? AND (number LIKE ? OR name LIKE ?)
      ORDER BY CASE WHEN number = ? THEN 0 WHEN number LIKE ? THEN 1 ELSE 2 END, name
      LIMIT ?`,
     [shop, `%${q}%`, `%${q}%`, q, `${q}%`, limit],
   );
+  console.log(`[catalog] query="${q}", shop=${shop}, results=${rows.length}`);
+  return rows;
 }
 
 export function findByNumber(shop: CatalogShop, number: string): CatalogProduct | null {

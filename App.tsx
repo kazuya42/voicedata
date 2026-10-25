@@ -98,6 +98,8 @@ export default function App() {
   const [transcriptsRefreshKey, setTranscriptsRefreshKey] = useState<number>(0);
   const [currentTranscriptId, setCurrentTranscriptId] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<CatalogProduct[]>([]);
+  const [productSearchVisible, setProductSearchVisible] = useState(false);
+  const [productSearchQuery, setProductSearchQuery] = useState('');
 
   // Bearbeitbare Felder
   const [editCustName, setEditCustName] = useState<string>('');
@@ -322,11 +324,13 @@ export default function App() {
     try {
       let preview: PreviewData;
       if (targetSystem === 'shopware') {
-        const [url, clientId, clientSecret, idsJson] = await Promise.all([
+        const [url, clientId, clientSecret, idsJson, basicUser, basicPass] = await Promise.all([
           getCred('shopwareUrl'),
           getCred('shopwareClientId'),
           getCred('shopwareClientSecret'),
           getCred('shopwareIds'),
+          getCred('shopwareBasicUser'),
+          getCred('shopwareBasicPass'),
         ]);
         if (!url || !clientId || !clientSecret)
           throw new Error('Shopware-Zugangsdaten fehlen (Einstellungen).');
@@ -335,6 +339,8 @@ export default function App() {
           clientId,
           clientSecret,
           ids: parseShopwareIds(idsJson),
+          basicUser: basicUser || undefined,
+          basicPass: basicPass || undefined,
         });
       } else if (targetSystem === 'shopify') {
         const [domain, token] = await Promise.all([
@@ -388,17 +394,21 @@ export default function App() {
     try {
       let successMessage = '';
       if (type === 'shopware_preview') {
-        const [url, clientId, clientSecret, idsJson] = await Promise.all([
+        const [url, clientId, clientSecret, idsJson, basicUser, basicPass] = await Promise.all([
           getCred('shopwareUrl'),
           getCred('shopwareClientId'),
           getCred('shopwareClientSecret'),
           getCred('shopwareIds'),
+          getCred('shopwareBasicUser'),
+          getCred('shopwareBasicPass'),
         ]);
         const result = await shopwareConfirmOrder(fields, {
           url,
           clientId,
           clientSecret,
           ids: parseShopwareIds(idsJson),
+          basicUser: basicUser || undefined,
+          basicPass: basicPass || undefined,
         });
         successMessage = `Bestellung ${result.orderNumber} erfolgreich in Shopware angelegt (${result.total.toFixed(2)} €).`;
       } else if (type === 'shopify_preview') {
@@ -554,6 +564,26 @@ export default function App() {
     setEditProdName(p.name);
     setSuggestions([]);
   };
+
+  const openProductSearch = () => {
+    const q = editProdName || editProdNumber || '';
+    setProductSearchQuery(q);
+    setProductSearchVisible(true);
+  };
+
+  const applyProductSearchResult = (p: CatalogProduct) => {
+    setEditProdNumber(p.number);
+    setEditProdName(p.name);
+    setSuggestions([]);
+    setProductSearchVisible(false);
+    setProductSearchQuery('');
+  };
+
+  const productSearchResults: CatalogProduct[] =
+    productSearchVisible &&
+    (targetSystem === 'shopware' || targetSystem === 'shopify' || targetSystem === 'tiktok_shop')
+      ? searchCatalog(targetSystem, productSearchQuery, 20)
+      : [];
 
   const formatDuration = (millis: number) => {
     const totalSeconds = Math.floor(millis / 1000);
@@ -1010,7 +1040,62 @@ export default function App() {
                       PRODUKT
                     </Text>
 
-                    <Text style={[styles.inputLabel, { marginTop: 8 }]}>Produktname</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 2 }}>
+                      <Text style={[styles.inputLabel, { flex: 1, marginTop: 0 }]}>Produktname</Text>
+                      {(targetSystem === 'shopware' || targetSystem === 'shopify' || targetSystem === 'tiktok_shop') && (
+                        <TouchableOpacity
+                          onPress={openProductSearch}
+                          style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, backgroundColor: '#1E293B', borderRadius: 8, borderWidth: 1, borderColor: productSearchVisible ? '#10B981' : '#6366F1' }}
+                          disabled={uploadStatus === 'uploading'}
+                        >
+                          <Package size={14} color={productSearchVisible ? '#10B981' : '#6366F1'} style={{ marginRight: 5 }} />
+                          <Text style={{ color: productSearchVisible ? '#10B981' : '#6366F1', fontSize: 12, fontWeight: '600' }}>
+                            {productSearchVisible ? 'Suche schließen' : 'Artikel suchen'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {/* Inline-Artikelsuche */}
+                    {productSearchVisible && (
+                      <View style={{ backgroundColor: '#0F172A', borderRadius: 12, borderWidth: 1, borderColor: '#334155', padding: 12, marginBottom: 10 }}>
+                        <View style={styles.inputWithIconContainer}>
+                          <Package size={18} color="#94A3B8" style={styles.inputIcon} />
+                          <TextInput
+                            style={styles.textInputWithIcon}
+                            value={productSearchQuery}
+                            onChangeText={setProductSearchQuery}
+                            placeholder="Name oder Artikelnummer…"
+                            placeholderTextColor="#64748B"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
+                          {productSearchQuery.length > 0 && (
+                            <TouchableOpacity onPress={() => setProductSearchQuery('')} style={{ padding: 4 }}>
+                              <X size={16} color="#64748B" />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                        {productSearchResults.length === 0 && productSearchQuery.trim().length >= 2 && (
+                          <Text style={{ color: '#64748B', fontSize: 13, marginTop: 8 }}>Keine Treffer.</Text>
+                        )}
+                        {productSearchResults.length === 0 && productSearchQuery.trim().length < 2 && (
+                          <Text style={{ color: '#475569', fontSize: 12, marginTop: 6 }}>Leer lassen = alle Artikel, oder Begriff eingeben…</Text>
+                        )}
+                        {productSearchResults.map((p) => (
+                          <TouchableOpacity
+                            key={`${p.shop}-${p.externalId}`}
+                            style={[styles.suggestionRow, { paddingVertical: 12 }]}
+                            onPress={() => applyProductSearchResult(p)}
+                          >
+                            <Text style={styles.suggestionNumber}>{p.number}</Text>
+                            <Text style={[styles.suggestionName, { flex: 1 }]} numberOfLines={2}>{p.name}</Text>
+                            <Text style={styles.suggestionPrice}>{p.priceGross ? `${p.priceGross.toFixed(2)} €` : ''}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+
                     <View style={styles.inputWithIconContainer}>
                       <Package size={18} color="#94A3B8" style={styles.inputIcon} />
                       <TextInput
@@ -1052,8 +1137,8 @@ export default function App() {
                       </View>
                     </View>
 
-                    {/* Autocomplete aus dem lokalen Katalog */}
-                    {suggestions.length > 0 && (
+                    {/* Autocomplete beim Tippen im Namensfeld */}
+                    {suggestions.length > 0 && !productSearchVisible && (
                       <View style={styles.suggestionsBox}>
                         {suggestions.map((s) => (
                           <TouchableOpacity
@@ -1136,7 +1221,7 @@ export default function App() {
               </Text>
             </View>
 
-            <View style={styles.modalBody}>
+            <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
               {shopPreview && (
                 <>
                   <View style={styles.previewSection}>
@@ -1273,7 +1358,7 @@ export default function App() {
                   </ScrollView>
                 </View>
               )}
-            </View>
+            </ScrollView>
 
             <View style={styles.modalFooter}>
               <TouchableOpacity

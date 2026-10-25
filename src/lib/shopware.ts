@@ -45,6 +45,9 @@ export type ShopwareCreds = {
   clientSecret: string;
   // Optionaler Override der Instanz-IDs (gemerged über DEFAULT_SHOPWARE_IDS).
   ids?: Partial<ShopwareIds>;
+  // Optionaler HTTP-Basic-Auth-Schutz (z. B. Nginx-Passwortschutz vor dem Shop).
+  basicUser?: string;
+  basicPass?: string;
 };
 
 // JSON-String aus den Einstellungen robust in ein ShopwareIds-Teilobjekt parsen.
@@ -73,6 +76,21 @@ const effectiveIds = (creds: ShopwareCreds): ShopwareIds => ({
 let tokenCache: { key: string; token: string; expiresAt: number } | null = null;
 
 const cleanUrl = (url: string) => url.trim().replace(/\/+$/, '');
+const baseUrl = (creds: ShopwareCreds) => injectBasicAuth(cleanUrl(creds.url), creds);
+
+// Basic-Auth-Schutz (Nginx) via URL-Credentials einbetten – so kollidiert es nicht
+// mit dem Bearer-Token-Header, den die Shopware-Admin-API selbst erwartet.
+const injectBasicAuth = (url: string, creds: ShopwareCreds): string => {
+  if (!creds.basicUser || !creds.basicPass) return url;
+  try {
+    const u = new URL(url);
+    u.username = encodeURIComponent(creds.basicUser);
+    u.password = encodeURIComponent(creds.basicPass);
+    return u.toString();
+  } catch {
+    return url;
+  }
+};
 
 export async function getShopwareToken(creds: ShopwareCreds): Promise<string> {
   const key = `${creds.url}|${creds.clientId}`;
@@ -80,7 +98,7 @@ export async function getShopwareToken(creds: ShopwareCreds): Promise<string> {
     return tokenCache.token;
   }
   const response = await fetchWithRetry(
-    `${cleanUrl(creds.url)}/api/oauth/token`,
+    `${baseUrl(creds)}/api/oauth/token`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -109,7 +127,7 @@ async function swSearch(
   payload: any,
 ): Promise<{ total: number; data: any[] }> {
   const response = await fetchWithRetry(
-    `${cleanUrl(creds.url)}/api/search/${entity}`,
+    `${baseUrl(creds)}/api/search/${entity}`,
     {
       method: 'POST',
       headers: {
@@ -198,7 +216,7 @@ async function createCustomer(
   const { firstName, lastName } = splitName(fields.customerName);
   const ids = effectiveIds(creds);
   // Kunde anlegen = nicht idempotent -> kein Auto-Retry (Doppelanlage vermeiden).
-  const response = await fetchWithRetry(`${cleanUrl(creds.url)}/api/customer?_response=basic`, {
+  const response = await fetchWithRetry(`${baseUrl(creds)}/api/customer?_response=basic`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -234,7 +252,7 @@ async function createCustomer(
 
 async function reserveOrderNumber(creds: ShopwareCreds, token: string): Promise<string> {
   const response = await fetchWithRetry(
-    `${cleanUrl(creds.url)}/api/_action/number-range/reserve/order`,
+    `${baseUrl(creds)}/api/_action/number-range/reserve/order`,
     { headers: { Accept: 'application/json', Authorization: `Bearer ${token}` } },
     { retries: 1 },
   );
@@ -370,7 +388,7 @@ export async function shopwareConfirmOrder(
   };
 
   // Bestellung anlegen = nicht idempotent -> kein Auto-Retry (Doppelbestellung vermeiden).
-  const response = await fetchWithRetry(`${cleanUrl(creds.url)}/api/order?_response=basic`, {
+  const response = await fetchWithRetry(`${baseUrl(creds)}/api/order?_response=basic`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -426,4 +444,86 @@ export async function fetchAllShopwareProducts(
     if (page > 200) break; // Sicherheitsgrenze (20k Artikel)
   }
   return out;
+}
+
+// Alle instanz-spezifischen IDs automatisch aus dem Shop lesen und als ShopwareIds zurückgeben.
+// Strategie je Entität:
+//   currency     → ISO-Code EUR, sonst erste
+//   language     → locale.code beginnt mit "de", sonst erste
+//   salesChannel → erster aktiver (type = Storefront oder Service)
+//   country      → iso = DE, sonst erste
+//   salutation   → salutationKey = not_specified, sonst erste
+//   customerGroup→ erste
+//   payment      → technicalName enthält "prepaid" ODER name enthält "vorkasse" (ci), sonst erste aktive
+//   shipping     → erste aktive
+//   state open   → per StateMachine-Suche für order.state / order_transaction.state / order_delivery.state
+export async function syncShopwareIds(creds: ShopwareCreds): Promise<ShopwareIds> {
+  const token = await getShopwareToken(creds);
+
+  const first = (res: { data: any[] }) => res.data[0]?.id as string | undefined;
+
+  const [currency, language, salesChannel, country, salutation, customerGroup] = await Promise.all([
+    swSearch(creds, token, 'currency', {
+      filter: [{ type: 'equals', field: 'isoCode', value: 'EUR' }], limit: 1,
+    }).then((r) => r.data[0]?.id || first(r) || '').catch(async () =>
+      first(await swSearch(creds, token, 'currency', { limit: 1 })) || ''),
+
+    swSearch(creds, token, 'language', {
+      associations: { locale: {} }, limit: 50,
+    }).then((r) => {
+      const de = r.data.find((l: any) => l.locale?.code?.startsWith('de'));
+      return de?.id || r.data[0]?.id || '';
+    }),
+
+    swSearch(creds, token, 'sales-channel', { limit: 1 }).then((r) => r.data[0]?.id || ''),
+
+    swSearch(creds, token, 'country', {
+      filter: [{ type: 'equals', field: 'iso', value: 'DE' }], limit: 1,
+    }).then((r) => r.data[0]?.id || '').catch(async () =>
+      first(await swSearch(creds, token, 'country', { limit: 1 })) || ''),
+
+    swSearch(creds, token, 'salutation', {
+      filter: [{ type: 'equals', field: 'salutationKey', value: 'not_specified' }], limit: 1,
+    }).then((r) => r.data[0]?.id || '').catch(async () =>
+      first(await swSearch(creds, token, 'salutation', { limit: 1 })) || ''),
+
+    swSearch(creds, token, 'customer-group', { limit: 1 }).then((r) => r.data[0]?.id || ''),
+  ]);
+
+  // Zahlungsart: Vorkasse / Prepaid
+  const paymentRes = await swSearch(creds, token, 'payment-method', { limit: 50 });
+  const payment =
+    paymentRes.data.find((p: any) =>
+      p.technicalName?.toLowerCase().includes('prepaid') ||
+      p.name?.toLowerCase().includes('vorkasse'),
+    )?.id || paymentRes.data[0]?.id || '';
+
+  // Versandart: erste aktive
+  const shippingRes = await swSearch(creds, token, 'shipping-method', {
+    filter: [{ type: 'equals', field: 'active', value: true }], limit: 1,
+  });
+  const shipping = shippingRes.data[0]?.id || '';
+
+  // State-Machine-States: open für order, order_transaction, order_delivery
+  const stateRes = await swSearch(creds, token, 'state-machine-state', {
+    associations: { stateMachine: {} },
+    filter: [{ type: 'equals', field: 'technicalName', value: 'open' }],
+    limit: 50,
+  });
+  const stateFor = (machine: string) =>
+    stateRes.data.find((s: any) => s.stateMachine?.technicalName === machine)?.id || '';
+
+  return {
+    currencyId: currency,
+    languageId: language,
+    salesChannelId: salesChannel,
+    orderStateOpen: stateFor('order.state'),
+    countryId: country,
+    salutationId: salutation,
+    customerGroupId: customerGroup,
+    paymentVorkasse: payment,
+    transactionStateOpen: stateFor('order_transaction.state'),
+    shippingStandard: shipping,
+    deliveryStateOpen: stateFor('order_delivery.state'),
+  };
 }

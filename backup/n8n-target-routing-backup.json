@@ -18,10 +18,7 @@
       "name": "Webhook (Transcribe)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1.1,
-      "position": [
-        0,
-        150
-      ],
+      "position": [0, 150],
       "webhookId": "56926af1-907d-4589-bb2a-e6417cd1fab2"
     },
     {
@@ -59,10 +56,7 @@
       "name": "Whisper",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        220,
-        150
-      ]
+      "position": [220, 150]
     },
     {
       "parameters": {
@@ -90,10 +84,7 @@
       "name": "GPT-4o (Extract)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        440,
-        150
-      ]
+      "position": [440, 150]
     },
     {
       "parameters": {
@@ -105,10 +96,7 @@
       "name": "Respond Transcribe",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [
-        660,
-        150
-      ]
+      "position": [660, 150]
     },
     {
       "parameters": {
@@ -121,10 +109,7 @@
       "name": "Webhook (Process)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1.1,
-      "position": [
-        0,
-        450
-      ],
+      "position": [0, 450],
       "webhookId": "b94d1c8e-da38-4175-a210-02f078767712"
     },
     {
@@ -135,10 +120,7 @@
       "name": "Set Data",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        220,
-        450
-      ]
+      "position": [220, 450]
     },
     {
       "parameters": {
@@ -245,10 +227,7 @@
       "name": "Switch Target",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.1,
-      "position": [
-        440,
-        450
-      ]
+      "position": [440, 450]
     },
     {
       "parameters": {
@@ -258,10 +237,7 @@
       "name": "CSV erstellen",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        760,
-        750
-      ]
+      "position": [760, 750]
     },
     {
       "parameters": {
@@ -273,10 +249,7 @@
       "name": "Respond CSV",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [
-        980,
-        750
-      ]
+      "position": [980, 750]
     },
     {
       "parameters": {
@@ -286,10 +259,7 @@
       "name": "Email erstellen",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        760,
-        450
-      ]
+      "position": [760, 450]
     },
     {
       "parameters": {
@@ -301,10 +271,7 @@
       "name": "Respond Email",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [
-        980,
-        450
-      ]
+      "position": [980, 450]
     },
     {
       "parameters": {
@@ -314,10 +281,7 @@
       "name": "Google Sheets",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        760,
-        600
-      ]
+      "position": [760, 600]
     },
     {
       "parameters": {
@@ -329,10 +293,7 @@
       "name": "Respond Google",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [
-        980,
-        600
-      ]
+      "position": [980, 600]
     },
     {
       "parameters": {
@@ -342,10 +303,7 @@
       "name": "SHOPWARE EINSTELLUNGEN",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        760,
-        150
-      ]
+      "position": [760, 150]
     },
     {
       "parameters": {
@@ -374,10 +332,7 @@
       "name": "Get Token",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        980,
-        150
-      ]
+      "position": [980, 150]
     },
     {
       "parameters": {
@@ -410,10 +365,7 @@
       "name": "Search Customer",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        1200,
-        150
-      ]
+      "position": [1200, 150]
     },
     {
       "parameters": {
@@ -443,10 +395,7 @@
       "name": "If Not Found",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [
-        1420,
-        150
-      ]
+      "position": [1420, 150]
     },
     {
       "parameters": {
@@ -479,10 +428,7 @@
       "name": "Create Customer",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        1640,
-        50
-      ]
+      "position": [1640, 50]
     },
     {
       "parameters": {
@@ -515,10 +461,7 @@
       "name": "Search Product",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
-      "position": [
-        1860,
-        150
-      ]
+      "position": [1860, 150]
     },
     {
       "parameters": {
@@ -528,10 +471,7 @@
       "name": "Build Preview",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        2080,
-        150
-      ]
+      "position": [2080, 150]
     },
     {
       "parameters": {
@@ -543,10 +483,7 @@
       "name": "Respond Shopware",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [
-        2300,
-        150
-      ]
+      "position": [2300, 150]
     },
     {
       "parameters": {
@@ -559,10 +496,7 @@
       "name": "Webhook (Confirm)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1.1,
-      "position": [
-        0,
-        1050
-      ],
+      "position": [0, 1050],
       "webhookId": "4a2efb8b-c1e3-47c3-8c0e-ac69a8f8f81c"
     },
     {
@@ -575,20 +509,14 @@
       "name": "Respond Confirm",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [
-        1540,
-        900
-      ]
+      "position": [1540, 900]
     },
     {
       "id": "confirm-settings",
       "name": "Confirm Settings",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        220,
-        900
-      ],
+      "position": [220, 900],
       "parameters": {
         "jsCode": "// Shopware-Zugangsdaten (eigene Kopie, da der Confirm-Webhook eine separate Execution ist)\nconst shopwareUrl = 'https://yakuza.bravion.de';\nconst clientId = 'ENTFERNT_CLIENT_ID';\nconst clientSecret = 'ENTFERNT_CLIENT_SECRET';\nconst body = $input.first().json.body || {};\nif (!body.customer || !body.customer.id || body.customer.id === 'new' || body.customer.id === 'unknown') {\n  throw new Error('Keine gueltige Kunden-ID im Request.');\n}\nif (!body.product || !body.product.id) {\n  throw new Error('Keine gueltige Produkt-ID im Request.');\n}\nreturn [{ json: { shopwareUrl, clientId, clientSecret, body } }];"
       }
@@ -598,10 +526,7 @@
       "name": "Get Token (Confirm)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        440,
-        900
-      ],
+      "position": [440, 900],
       "parameters": {
         "method": "POST",
         "url": "={{ $json.shopwareUrl }}/api/oauth/token",
@@ -630,10 +555,7 @@
       "name": "Get Customer (Confirm)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        660,
-        900
-      ],
+      "position": [660, 900],
       "parameters": {
         "method": "POST",
         "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/search/customer",
@@ -666,10 +588,7 @@
       "name": "Get Product (Confirm)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        880,
-        900
-      ],
+      "position": [880, 900],
       "parameters": {
         "method": "POST",
         "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/search/product",
@@ -702,10 +621,7 @@
       "name": "Build Order",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        1100,
-        900
-      ],
+      "position": [1100, 900],
       "parameters": {
         "jsCode": "const body = $('Confirm Settings').first().json.body;\nconst customerRes = $('Get Customer (Confirm)').first().json;\nconst productRes = $('Get Product (Confirm)').first().json;\nconst orderNumber = String($input.first().json.number || '');\nif (!customerRes.data || customerRes.data.length === 0) throw new Error('Kunde nicht in Shopware gefunden.');\nif (!productRes.data || productRes.data.length === 0) throw new Error('Produkt nicht in Shopware gefunden.');\nif (!orderNumber) throw new Error('Keine Bestellnummer vom NumberRange erhalten.');\nconst customer = customerRes.data[0].attributes || customerRes.data[0];\nconst product = productRes.data[0].attributes || productRes.data[0];\nconst productId = body.product.id;\nconst billingAddressId = customer.defaultBillingAddressId;\nif (!billingAddressId) throw new Error('Kunde hat keine Rechnungsadresse.');\nconst qty = Math.max(1, parseInt(body.product.quantity, 10) || 1);\nconst priceList = product.price || [];\nconst gross = priceList.length > 0 ? priceList[0].gross : 0;\nconst round2 = (v) => Math.round(v * 100) / 100;\nconst total = round2(gross * qty);\nconst taxRate = (product.tax && product.tax.taxRate !== undefined) ? product.tax.taxRate : 19;\nconst taxAmount = round2(total * taxRate / (100 + taxRate));\nconst calculatedTaxes = [{ tax: taxAmount, taxRate: taxRate, price: total }];\nconst taxRules = [{ taxRate: taxRate, percentage: 100 }];\nconst rounding = { decimals: 2, interval: 0.01, roundForNet: true };\nconst addrSrc = customer.defaultBillingAddress || {};\nconst deliv = body.delivery || {};\nconst delivName = (deliv.name || '').trim();\nconst delivParts = delivName.split(' ');\nconst shipFirst = delivName ? delivParts[0] : (customer.firstName || (body.customer.name || 'Unbekannt').split(' ')[0]);\nconst shipLast = delivName ? (delivParts.slice(1).join(' ') || delivParts[0]) : (customer.lastName || (body.customer.name || 'Unbekannt').split(' ').slice(1).join(' ') || 'Unbekannt');\nconst shipStreet = deliv.street || body.customer.street || addrSrc.street || 'Unbekannt';\nconst shipZip = deliv.zip || body.customer.zip || addrSrc.zipcode || '';\nconst shipCity = deliv.city || body.customer.city || addrSrc.city || 'Unbekannt';\nconst shipCountryId = addrSrc.countryId || '019c14a2d10372a4be16521bf892db25';\nconst orderPayload = {\n  orderNumber: orderNumber,\n  orderCustomer: {\n    customerId: body.customer.id,\n    email: body.customer.email || customer.email,\n    firstName: customer.firstName || (body.customer.name || 'Unbekannt').split(' ')[0],\n    lastName: customer.lastName || (body.customer.name || 'Unbekannt').split(' ').slice(1).join(' ') || 'Unbekannt'\n  },\n  currencyId: 'b7d2554b0ce847cd82f3ac9bd1c0dfca',\n  currencyFactor: 1,\n  languageId: '2fbb5fe2e29a4d70aa5854ce7ce3e20b',\n  salesChannelId: '019c14a31441723b8a3a5173f49b5795',\n  billingAddressId: billingAddressId,\n  stateId: '019c14a2d1a172469634ef7cb4638511',\n  orderDateTime: new Date().toISOString(),\n  itemRounding: rounding,\n  totalRounding: rounding,\n  price: {\n    netPrice: round2(total - taxAmount),\n    totalPrice: total,\n    rawTotal: total,\n    positionPrice: total,\n    calculatedTaxes: calculatedTaxes,\n    taxRules: taxRules,\n    taxStatus: 'gross'\n  },\n  shippingCosts: { unitPrice: 0, totalPrice: 0, quantity: 1, calculatedTaxes: [{ tax: 0, taxRate: taxRate, price: 0 }], taxRules: taxRules },\n  transactions: [{\n    paymentMethodId: '019c14a2d16b725a937772e8e4e91625',\n    stateId: '019c14a2d1ac7181a4f509c1c5e1f5c5',\n    amount: { unitPrice: total, totalPrice: total, quantity: 1, calculatedTaxes: calculatedTaxes, taxRules: taxRules }\n  }],\n  deliveries: [{\n    stateId: '019c14a2d1a7702188e8cd5c47967563',\n    shippingMethodId: '019c14a2d16f702d8216971ab1853288',\n    shippingCosts: { unitPrice: 0, totalPrice: 0, quantity: 1, calculatedTaxes: [{ tax: 0, taxRate: taxRate, price: 0 }], taxRules: taxRules },\n    shippingDateEarliest: new Date().toISOString(),\n    shippingDateLatest: new Date(Date.now() + 3 * 86400000).toISOString(),\n    shippingOrderAddress: {\n      firstName: shipFirst,\n      lastName: shipLast,\n      street: shipStreet,\n      zipcode: shipZip,\n      city: shipCity,\n      countryId: shipCountryId,\n      salutationId: '019c14a2d1027002b495f96502a19438'\n    }\n  }],\n  lineItems: [{\n    type: 'product',\n    identifier: productId,\n    referencedId: productId,\n    productId: productId,\n    label: product.name || body.product.name || 'Produkt',\n    quantity: qty,\n    position: 1,\n    states: ['is-physical'],\n    payload: { productNumber: product.productNumber || body.product.number },\n    price: {\n      unitPrice: gross,\n      totalPrice: total,\n      quantity: qty,\n      calculatedTaxes: calculatedTaxes,\n      taxRules: taxRules\n    }\n  }]\n};\nreturn [{ json: { orderPayload, summary: { product: product.name, quantity: qty, total: total, orderNumber: orderNumber } } }];"
       }
@@ -715,10 +631,7 @@
       "name": "Create Order",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [
-        1320,
-        900
-      ],
+      "position": [1320, 900],
       "parameters": {
         "method": "POST",
         "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/order?_response=basic",
@@ -770,10 +683,7 @@
       "typeVersion": 4.2,
       "name": "Get Order Number",
       "id": "479fbe5b-d140-48ad-a4f9-4ac602c21d68",
-      "position": [
-        990,
-        1080
-      ]
+      "position": [990, 1080]
     }
   ],
   "connections": {
@@ -1121,10 +1031,7 @@
         "name": "Webhook (Transcribe)",
         "type": "n8n-nodes-base.webhook",
         "typeVersion": 1.1,
-        "position": [
-          0,
-          150
-        ],
+        "position": [0, 150],
         "webhookId": "56926af1-907d-4589-bb2a-e6417cd1fab2"
       },
       {
@@ -1162,10 +1069,7 @@
         "name": "Whisper",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.1,
-        "position": [
-          220,
-          150
-        ]
+        "position": [220, 150]
       },
       {
         "parameters": {
@@ -1193,10 +1097,7 @@
         "name": "GPT-4o (Extract)",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.1,
-        "position": [
-          440,
-          150
-        ]
+        "position": [440, 150]
       },
       {
         "parameters": {
@@ -1208,10 +1109,7 @@
         "name": "Respond Transcribe",
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1.1,
-        "position": [
-          660,
-          150
-        ]
+        "position": [660, 150]
       },
       {
         "parameters": {
@@ -1224,10 +1122,7 @@
         "name": "Webhook (Process)",
         "type": "n8n-nodes-base.webhook",
         "typeVersion": 1.1,
-        "position": [
-          0,
-          450
-        ],
+        "position": [0, 450],
         "webhookId": "b94d1c8e-da38-4175-a210-02f078767712"
       },
       {
@@ -1238,10 +1133,7 @@
         "name": "Set Data",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
-        "position": [
-          220,
-          450
-        ]
+        "position": [220, 450]
       },
       {
         "parameters": {
@@ -1348,10 +1240,7 @@
         "name": "Switch Target",
         "type": "n8n-nodes-base.switch",
         "typeVersion": 3.1,
-        "position": [
-          440,
-          450
-        ]
+        "position": [440, 450]
       },
       {
         "parameters": {
@@ -1361,10 +1250,7 @@
         "name": "CSV erstellen",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
-        "position": [
-          760,
-          750
-        ]
+        "position": [760, 750]
       },
       {
         "parameters": {
@@ -1376,10 +1262,7 @@
         "name": "Respond CSV",
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1,
-        "position": [
-          980,
-          750
-        ]
+        "position": [980, 750]
       },
       {
         "parameters": {
@@ -1389,10 +1272,7 @@
         "name": "Email erstellen",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
-        "position": [
-          760,
-          450
-        ]
+        "position": [760, 450]
       },
       {
         "parameters": {
@@ -1404,10 +1284,7 @@
         "name": "Respond Email",
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1,
-        "position": [
-          980,
-          450
-        ]
+        "position": [980, 450]
       },
       {
         "parameters": {
@@ -1417,10 +1294,7 @@
         "name": "Google Sheets",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
-        "position": [
-          760,
-          600
-        ]
+        "position": [760, 600]
       },
       {
         "parameters": {
@@ -1432,10 +1306,7 @@
         "name": "Respond Google",
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1,
-        "position": [
-          980,
-          600
-        ]
+        "position": [980, 600]
       },
       {
         "parameters": {
@@ -1445,10 +1316,7 @@
         "name": "SHOPWARE EINSTELLUNGEN",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
-        "position": [
-          760,
-          150
-        ]
+        "position": [760, 150]
       },
       {
         "parameters": {
@@ -1477,10 +1345,7 @@
         "name": "Get Token",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.1,
-        "position": [
-          980,
-          150
-        ]
+        "position": [980, 150]
       },
       {
         "parameters": {
@@ -1513,10 +1378,7 @@
         "name": "Search Customer",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.1,
-        "position": [
-          1200,
-          150
-        ]
+        "position": [1200, 150]
       },
       {
         "parameters": {
@@ -1546,10 +1408,7 @@
         "name": "If Not Found",
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.2,
-        "position": [
-          1420,
-          150
-        ]
+        "position": [1420, 150]
       },
       {
         "parameters": {
@@ -1582,10 +1441,7 @@
         "name": "Create Customer",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.1,
-        "position": [
-          1640,
-          50
-        ]
+        "position": [1640, 50]
       },
       {
         "parameters": {
@@ -1618,10 +1474,7 @@
         "name": "Search Product",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.1,
-        "position": [
-          1860,
-          150
-        ]
+        "position": [1860, 150]
       },
       {
         "parameters": {
@@ -1631,10 +1484,7 @@
         "name": "Build Preview",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
-        "position": [
-          2080,
-          150
-        ]
+        "position": [2080, 150]
       },
       {
         "parameters": {
@@ -1646,10 +1496,7 @@
         "name": "Respond Shopware",
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1,
-        "position": [
-          2300,
-          150
-        ]
+        "position": [2300, 150]
       },
       {
         "parameters": {
@@ -1662,10 +1509,7 @@
         "name": "Webhook (Confirm)",
         "type": "n8n-nodes-base.webhook",
         "typeVersion": 1.1,
-        "position": [
-          0,
-          1050
-        ],
+        "position": [0, 1050],
         "webhookId": "4a2efb8b-c1e3-47c3-8c0e-ac69a8f8f81c"
       },
       {
@@ -1678,20 +1522,14 @@
         "name": "Respond Confirm",
         "type": "n8n-nodes-base.respondToWebhook",
         "typeVersion": 1,
-        "position": [
-          1540,
-          900
-        ]
+        "position": [1540, 900]
       },
       {
         "id": "confirm-settings",
         "name": "Confirm Settings",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
-        "position": [
-          220,
-          900
-        ],
+        "position": [220, 900],
         "parameters": {
           "jsCode": "// Shopware-Zugangsdaten (eigene Kopie, da der Confirm-Webhook eine separate Execution ist)\nconst shopwareUrl = 'https://yakuza.bravion.de';\nconst clientId = 'ENTFERNT_CLIENT_ID';\nconst clientSecret = 'ENTFERNT_CLIENT_SECRET';\nconst body = $input.first().json.body || {};\nif (!body.customer || !body.customer.id || body.customer.id === 'new' || body.customer.id === 'unknown') {\n  throw new Error('Keine gueltige Kunden-ID im Request.');\n}\nif (!body.product || !body.product.id) {\n  throw new Error('Keine gueltige Produkt-ID im Request.');\n}\nreturn [{ json: { shopwareUrl, clientId, clientSecret, body } }];"
         }
@@ -1701,10 +1539,7 @@
         "name": "Get Token (Confirm)",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.2,
-        "position": [
-          440,
-          900
-        ],
+        "position": [440, 900],
         "parameters": {
           "method": "POST",
           "url": "={{ $json.shopwareUrl }}/api/oauth/token",
@@ -1733,10 +1568,7 @@
         "name": "Get Customer (Confirm)",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.2,
-        "position": [
-          660,
-          900
-        ],
+        "position": [660, 900],
         "parameters": {
           "method": "POST",
           "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/search/customer",
@@ -1769,10 +1601,7 @@
         "name": "Get Product (Confirm)",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.2,
-        "position": [
-          880,
-          900
-        ],
+        "position": [880, 900],
         "parameters": {
           "method": "POST",
           "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/search/product",
@@ -1805,10 +1634,7 @@
         "name": "Build Order",
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
-        "position": [
-          1100,
-          900
-        ],
+        "position": [1100, 900],
         "parameters": {
           "jsCode": "const body = $('Confirm Settings').first().json.body;\nconst customerRes = $('Get Customer (Confirm)').first().json;\nconst productRes = $('Get Product (Confirm)').first().json;\nconst orderNumber = String($input.first().json.number || '');\nif (!customerRes.data || customerRes.data.length === 0) throw new Error('Kunde nicht in Shopware gefunden.');\nif (!productRes.data || productRes.data.length === 0) throw new Error('Produkt nicht in Shopware gefunden.');\nif (!orderNumber) throw new Error('Keine Bestellnummer vom NumberRange erhalten.');\nconst customer = customerRes.data[0].attributes || customerRes.data[0];\nconst product = productRes.data[0].attributes || productRes.data[0];\nconst productId = body.product.id;\nconst billingAddressId = customer.defaultBillingAddressId;\nif (!billingAddressId) throw new Error('Kunde hat keine Rechnungsadresse.');\nconst qty = Math.max(1, parseInt(body.product.quantity, 10) || 1);\nconst priceList = product.price || [];\nconst gross = priceList.length > 0 ? priceList[0].gross : 0;\nconst round2 = (v) => Math.round(v * 100) / 100;\nconst total = round2(gross * qty);\nconst taxRate = (product.tax && product.tax.taxRate !== undefined) ? product.tax.taxRate : 19;\nconst taxAmount = round2(total * taxRate / (100 + taxRate));\nconst calculatedTaxes = [{ tax: taxAmount, taxRate: taxRate, price: total }];\nconst taxRules = [{ taxRate: taxRate, percentage: 100 }];\nconst rounding = { decimals: 2, interval: 0.01, roundForNet: true };\nconst addrSrc = customer.defaultBillingAddress || {};\nconst deliv = body.delivery || {};\nconst delivName = (deliv.name || '').trim();\nconst delivParts = delivName.split(' ');\nconst shipFirst = delivName ? delivParts[0] : (customer.firstName || (body.customer.name || 'Unbekannt').split(' ')[0]);\nconst shipLast = delivName ? (delivParts.slice(1).join(' ') || delivParts[0]) : (customer.lastName || (body.customer.name || 'Unbekannt').split(' ').slice(1).join(' ') || 'Unbekannt');\nconst shipStreet = deliv.street || body.customer.street || addrSrc.street || 'Unbekannt';\nconst shipZip = deliv.zip || body.customer.zip || addrSrc.zipcode || '';\nconst shipCity = deliv.city || body.customer.city || addrSrc.city || 'Unbekannt';\nconst shipCountryId = addrSrc.countryId || '019c14a2d10372a4be16521bf892db25';\nconst orderPayload = {\n  orderNumber: orderNumber,\n  orderCustomer: {\n    customerId: body.customer.id,\n    email: body.customer.email || customer.email,\n    firstName: customer.firstName || (body.customer.name || 'Unbekannt').split(' ')[0],\n    lastName: customer.lastName || (body.customer.name || 'Unbekannt').split(' ').slice(1).join(' ') || 'Unbekannt'\n  },\n  currencyId: 'b7d2554b0ce847cd82f3ac9bd1c0dfca',\n  currencyFactor: 1,\n  languageId: '2fbb5fe2e29a4d70aa5854ce7ce3e20b',\n  salesChannelId: '019c14a31441723b8a3a5173f49b5795',\n  billingAddressId: billingAddressId,\n  stateId: '019c14a2d1a172469634ef7cb4638511',\n  orderDateTime: new Date().toISOString(),\n  itemRounding: rounding,\n  totalRounding: rounding,\n  price: {\n    netPrice: round2(total - taxAmount),\n    totalPrice: total,\n    rawTotal: total,\n    positionPrice: total,\n    calculatedTaxes: calculatedTaxes,\n    taxRules: taxRules,\n    taxStatus: 'gross'\n  },\n  shippingCosts: { unitPrice: 0, totalPrice: 0, quantity: 1, calculatedTaxes: [{ tax: 0, taxRate: taxRate, price: 0 }], taxRules: taxRules },\n  transactions: [{\n    paymentMethodId: '019c14a2d16b725a937772e8e4e91625',\n    stateId: '019c14a2d1ac7181a4f509c1c5e1f5c5',\n    amount: { unitPrice: total, totalPrice: total, quantity: 1, calculatedTaxes: calculatedTaxes, taxRules: taxRules }\n  }],\n  deliveries: [{\n    stateId: '019c14a2d1a7702188e8cd5c47967563',\n    shippingMethodId: '019c14a2d16f702d8216971ab1853288',\n    shippingCosts: { unitPrice: 0, totalPrice: 0, quantity: 1, calculatedTaxes: [{ tax: 0, taxRate: taxRate, price: 0 }], taxRules: taxRules },\n    shippingDateEarliest: new Date().toISOString(),\n    shippingDateLatest: new Date(Date.now() + 3 * 86400000).toISOString(),\n    shippingOrderAddress: {\n      firstName: shipFirst,\n      lastName: shipLast,\n      street: shipStreet,\n      zipcode: shipZip,\n      city: shipCity,\n      countryId: shipCountryId,\n      salutationId: '019c14a2d1027002b495f96502a19438'\n    }\n  }],\n  lineItems: [{\n    type: 'product',\n    identifier: productId,\n    referencedId: productId,\n    productId: productId,\n    label: product.name || body.product.name || 'Produkt',\n    quantity: qty,\n    position: 1,\n    states: ['is-physical'],\n    payload: { productNumber: product.productNumber || body.product.number },\n    price: {\n      unitPrice: gross,\n      totalPrice: total,\n      quantity: qty,\n      calculatedTaxes: calculatedTaxes,\n      taxRules: taxRules\n    }\n  }]\n};\nreturn [{ json: { orderPayload, summary: { product: product.name, quantity: qty, total: total, orderNumber: orderNumber } } }];"
         }
@@ -1818,10 +1644,7 @@
         "name": "Create Order",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.2,
-        "position": [
-          1320,
-          900
-        ],
+        "position": [1320, 900],
         "parameters": {
           "method": "POST",
           "url": "={{ $('Confirm Settings').first().json.shopwareUrl }}/api/order?_response=basic",
@@ -1873,10 +1696,7 @@
         "typeVersion": 4.2,
         "name": "Get Order Number",
         "id": "479fbe5b-d140-48ad-a4f9-4ac602c21d68",
-        "position": [
-          990,
-          1080
-        ]
+        "position": [990, 1080]
       }
     ],
     "connections": {

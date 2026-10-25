@@ -15,7 +15,7 @@ import {
 import { AlertCircle, CheckCircle2, Lock } from 'lucide-react-native';
 import { AllCreds, getAllCreds, isSecureStorage, setAllCreds } from '../lib/credentials';
 import { testOpenAI } from '../lib/openai';
-import { fetchAllShopwareProducts, testShopware, DEFAULT_SHOPWARE_IDS } from '../lib/shopware';
+import { fetchAllShopwareProducts, testShopware, DEFAULT_SHOPWARE_IDS, syncShopwareIds } from '../lib/shopware';
 import { fetchAllShopifyProducts, testShopify } from '../lib/shopify';
 import { testTikTok, fetchAllTikTokProducts } from '../lib/tiktok';
 import { testHubspot } from '../lib/hubspot';
@@ -32,7 +32,8 @@ type Busy =
   | 'hubspot'
   | 'sync_shopware'
   | 'sync_shopify'
-  | 'sync_tiktok';
+  | 'sync_tiktok'
+  | 'sync_ids';
 
 const emptyCreds: AllCreds = {
   openaiKey: '',
@@ -40,6 +41,8 @@ const emptyCreds: AllCreds = {
   shopwareClientId: '',
   shopwareClientSecret: '',
   shopwareIds: '',
+  shopwareBasicUser: '',
+  shopwareBasicPass: '',
   shopifyDomain: '',
   shopifyToken: '',
   tiktokAppKey: '',
@@ -168,6 +171,8 @@ export default function SettingsScreen() {
           url: creds.shopwareUrl,
           clientId: creds.shopwareClientId,
           clientSecret: creds.shopwareClientSecret,
+          basicUser: creds.shopwareBasicUser || undefined,
+          basicPass: creds.shopwareBasicPass || undefined,
         });
       } else if (shop === 'shopify') {
         products = await fetchAllShopifyProducts({
@@ -273,6 +278,19 @@ export default function SettingsScreen() {
           placeholder={SHOPWARE_IDS_PLACEHOLDER}
           multiline
         />
+        <Field
+          label="HTTP-Basic-Auth Benutzer (optional)"
+          value={creds.shopwareBasicUser}
+          onChange={update('shopwareBasicUser')}
+          placeholder="benutzername"
+        />
+        <Field
+          label="HTTP-Basic-Auth Passwort (optional)"
+          value={creds.shopwareBasicPass}
+          onChange={update('shopwareBasicPass')}
+          placeholder="passwort"
+          secure
+        />
         <View style={styles.btnRow}>
           <ActionBtn
             label="Verbindung testen"
@@ -286,6 +304,8 @@ export default function SettingsScreen() {
                     url: creds.shopwareUrl,
                     clientId: creds.shopwareClientId,
                     clientSecret: creds.shopwareClientSecret,
+                    basicUser: creds.shopwareBasicUser || undefined,
+                    basicPass: creds.shopwareBasicPass || undefined,
                   }),
                 'Shopware-Anmeldung funktioniert.',
               )
@@ -296,6 +316,32 @@ export default function SettingsScreen() {
             busyKey="sync_shopware"
             busy={busy}
             onPress={() => runSync('shopware')}
+          />
+          <ActionBtn
+            label="IDs sync"
+            busyKey="sync_ids"
+            busy={busy}
+            onPress={async () => {
+              setBusy('sync_ids');
+              try {
+                await setAllCreds(creds);
+                const ids = await syncShopwareIds({
+                  url: creds.shopwareUrl,
+                  clientId: creds.shopwareClientId,
+                  clientSecret: creds.shopwareClientSecret,
+                  basicUser: creds.shopwareBasicUser || undefined,
+                  basicPass: creds.shopwareBasicPass || undefined,
+                });
+                const json = JSON.stringify(ids, null, 2);
+                setCreds((c) => ({ ...c, shopwareIds: json }));
+                await setAllCreds({ ...creds, shopwareIds: json });
+                Alert.alert('IDs synchronisiert', 'Instanz-IDs wurden automatisch aus dem Shop gelesen und gespeichert.');
+              } catch (e: any) {
+                Alert.alert('Fehler', e?.message || 'IDs konnten nicht gelesen werden.');
+              } finally {
+                setBusy('');
+              }
+            }}
           />
         </View>
       </Section>
