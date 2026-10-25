@@ -10,7 +10,9 @@
     "start": "npm run build && electron .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "pack:mac": "npm run build && electron-builder --mac dir"
+    "vendor": "[ -x vendor/whisper-cli ] || scripts/build-whisper.sh",
+    "pack:mac": "npm run vendor && npm run build && electron-builder --mac dir --arm64",
+    "dist:mac": "npm run vendor && npm run build && APPLE_KEYCHAIN_PROFILE=${APPLE_KEYCHAIN_PROFILE:-voicedata-notary} electron-builder --mac dmg zip --arm64"
   },
   "devDependencies": {
     "@types/node": "^22",
@@ -30,7 +32,15 @@
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      {
+        "from": "vendor/whisper-cli",
+        "to": "whisper-cli"
+      }
+    ],
     "mac": {
+      "category": "public.app-category.productivity",
+      "minimumSystemVersion": "14.2",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {

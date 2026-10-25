@@ -25,20 +25,41 @@ Summary prompts and statistics are adapted from
 
 ## Requirements
 
-- macOS 14.2+ (system audio via CoreAudio Tap)
-- Local engine: `brew install whisper-cpp` (provides `whisper-cli`), then download a model in
-  _Einstellungen_.
+- Apple Silicon Mac, macOS 14.2+ (system audio via CoreAudio Tap)
+- Local engine: nothing to install – the app ships its own `whisper-cli` (whisper.cpp, Metal).
+  Download a model in _Einstellungen_. (`npm start` in development uses Homebrew's
+  `whisper-cli` instead: `brew install whisper-cpp`.)
 - OpenAI engine: API key with access to `gpt-transcribe`.
 
 ## Commands
 
 ```bash
 npm install
-npm test          # unit tests (segmenter, WAV, session store)
+npm test          # unit tests
 npm run typecheck
 npm start         # dev run – system audio permission is attributed to the terminal here
-npm run pack:mac  # release/mac-arm64/VoiceData Desktop.app – use this to test system audio
+npm run pack:mac  # release/mac-arm64/VoiceData Desktop.app – local test build, not notarized
+npm run dist:mac  # signed + notarized DMG and ZIP in release/ for other Macs
 ```
+
+`pack:mac`/`dist:mac` first build `vendor/whisper-cli` from whisper.cpp v1.9.5 if it is missing
+(`scripts/build-whisper.sh`; needs Xcode CLT, `cmake`, `ninja`).
+
+### Release for other Macs
+
+Needs the _Developer ID Application_ certificate in the keychain and notarization credentials
+stored once as keychain profile `voicedata-notary`:
+
+```bash
+xcrun notarytool store-credentials voicedata-notary \
+  --apple-id <apple-id-email> --team-id QCXF9R86DK
+# prompts for an app-specific password (appleid.apple.com › Sign-In & Security)
+npm run dist:mac
+```
+
+Ship `release/VoiceData Desktop-<version>-arm64.dmg`. On the other Mac: open the DMG, drag the
+app to _Applications_, start it, allow Microphone and System Audio Recording on first recording,
+download a model in _Einstellungen_. Bump `version` in `package.json` for each release.
 
 On first start of the recording macOS asks for **Microphone** and **System Audio Recording**
 (System Settings › Privacy & Security). Use headphones: on speakers the participants' voices also

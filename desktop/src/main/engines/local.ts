@@ -1,4 +1,6 @@
-// Lokale Transkription mit whisper.cpp über das Homebrew-CLI (`brew install whisper-cpp`, Metal-beschleunigt).
+// Lokale Transkription mit whisper.cpp (`whisper-cli`, Metal-beschleunigt).
+// Die fertige App bringt ein eigenes Binary mit (scripts/build-whisper.sh → Resources/whisper-cli);
+// im Entwicklungsmodus wird Homebrews `whisper-cli` verwendet (`brew install whisper-cpp`).
 // Chunk wird als temporäre WAV-Datei übergeben; ohne `-tr` wird nicht übersetzt.
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -10,8 +12,12 @@ import type { Engine } from './types';
 
 const run = promisify(execFile);
 
-// Apple Silicon bzw. Intel-Homebrew.
-const CLI_CANDIDATES = ['/opt/homebrew/bin/whisper-cli', '/usr/local/bin/whisper-cli'];
+// Mitgeliefertes Binary zuerst, dann Homebrew (Apple Silicon / Intel).
+const CLI_CANDIDATES = [
+  path.join(process.resourcesPath ?? '', 'whisper-cli'),
+  '/opt/homebrew/bin/whisper-cli',
+  '/usr/local/bin/whisper-cli',
+];
 
 export function createLocalEngine(modelPath: string): Engine {
   return {
