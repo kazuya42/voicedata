@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -11,39 +12,127 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { AlertCircle, CheckCircle2, Lock, RefreshCw } from 'lucide-react-native';
+import { AlertCircle, CheckCircle2, Lock } from 'lucide-react-native';
 import { AllCreds, getAllCreds, isSecureStorage, setAllCreds } from '../lib/credentials';
 import { testOpenAI } from '../lib/openai';
-import { fetchAllShopwareProducts, testShopware } from '../lib/shopware';
+import { fetchAllShopwareProducts, testShopware, DEFAULT_SHOPWARE_IDS, syncShopwareIds } from '../lib/shopware';
 import { fetchAllShopifyProducts, testShopify } from '../lib/shopify';
+import { testTikTok, fetchAllTikTokProducts } from '../lib/tiktok';
 import { testHubspot } from '../lib/hubspot';
 import { catalogCount, replaceCatalog } from '../lib/catalog';
 import { CatalogShop } from '../lib/types';
 
-type Busy = '' | 'save' | 'openai' | 'shopware' | 'shopify' | 'hubspot' | 'sync_shopware' | 'sync_shopify';
+type Busy =
+  | ''
+  | 'save'
+  | 'openai'
+  | 'shopware'
+  | 'shopify'
+  | 'tiktok'
+  | 'hubspot'
+  | 'sync_shopware'
+  | 'sync_shopify'
+  | 'sync_tiktok'
+  | 'sync_ids';
 
 const emptyCreds: AllCreds = {
   openaiKey: '',
   shopwareUrl: '',
   shopwareClientId: '',
   shopwareClientSecret: '',
+  shopwareIds: '',
+  shopwareBasicUser: '',
+  shopwareBasicPass: '',
   shopifyDomain: '',
   shopifyToken: '',
+  tiktokAppKey: '',
+  tiktokAppSecret: '',
+  tiktokAccessToken: '',
+  tiktokShopCipher: '',
   hubspotToken: '',
   googleSheetId: '',
+  googleScriptUrl: '',
 };
+
+const SHOPWARE_IDS_PLACEHOLDER = JSON.stringify(DEFAULT_SHOPWARE_IDS, null, 2);
+
+// Module-scope Komponenten (nicht im Render erzeugen – sonst State-Reset pro Render).
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function Field(props: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  secure?: boolean;
+  multiline?: boolean;
+}) {
+  return (
+    <View style={{ marginTop: 10 }}>
+      <Text style={styles.inputLabel}>{props.label}</Text>
+      <TextInput
+        style={[styles.textInput, props.multiline && styles.textInputMultiline]}
+        value={props.value}
+        onChangeText={props.onChange}
+        placeholder={props.placeholder}
+        placeholderTextColor="#64748B"
+        autoCapitalize="none"
+        autoCorrect={false}
+        secureTextEntry={!!props.secure}
+        multiline={!!props.multiline}
+      />
+    </View>
+  );
+}
+
+function ActionBtn(props: {
+  label: string;
+  onPress: () => void;
+  busyKey: Busy;
+  busy: Busy;
+  primary?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.actionBtn, props.primary && styles.actionBtnPrimary]}
+      onPress={props.onPress}
+      disabled={props.busy !== ''}
+    >
+      {props.busy === props.busyKey ? (
+        <ActivityIndicator size="small" color={props.primary ? '#FFFFFF' : '#6366F1'} />
+      ) : (
+        <Text style={[styles.actionBtnText, props.primary && styles.actionBtnTextPrimary]}>
+          {props.label}
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
+}
 
 export default function SettingsScreen() {
   const [creds, setCreds] = useState<AllCreds>(emptyCreds);
   const [busy, setBusy] = useState<Busy>('');
-  const [counts, setCounts] = useState<{ shopware: number; shopify: number }>({ shopware: 0, shopify: 0 });
+  const [counts, setCounts] = useState<{ shopware: number; shopify: number; tiktok: number }>(
+    () => ({
+      shopware: catalogCount('shopware'),
+      shopify: catalogCount('shopify'),
+      tiktok: catalogCount('tiktok_shop'),
+    }),
+  );
 
   useEffect(() => {
     getAllCreds().then(setCreds);
-    setCounts({ shopware: catalogCount('shopware'), shopify: catalogCount('shopify') });
   }, []);
 
-  const update = (key: keyof AllCreds) => (value: string) => setCreds((c) => ({ ...c, [key]: value }));
+  const update = (key: keyof AllCreds) => (value: string) =>
+    setCreds((c) => ({ ...c, [key]: value }));
 
   const save = async () => {
     setBusy('save');
@@ -71,23 +160,39 @@ export default function SettingsScreen() {
   };
 
   const runSync = async (shop: CatalogShop) => {
-    setBusy(shop === 'shopware' ? 'sync_shopware' : 'sync_shopify');
+    const busyKey: Busy =
+      shop === 'shopware' ? 'sync_shopware' : shop === 'shopify' ? 'sync_shopify' : 'sync_tiktok';
+    setBusy(busyKey);
     try {
       await setAllCreds(creds);
-      const products =
-        shop === 'shopware'
-          ? await fetchAllShopwareProducts({
-              url: creds.shopwareUrl,
-              clientId: creds.shopwareClientId,
-              clientSecret: creds.shopwareClientSecret,
-            })
-          : await fetchAllShopifyProducts({ domain: creds.shopifyDomain, token: creds.shopifyToken });
+      let products: { externalId: string; number: string; name: string; priceGross: number; taxRate: number | null }[];
+      if (shop === 'shopware') {
+        products = await fetchAllShopwareProducts({
+          url: creds.shopwareUrl,
+          clientId: creds.shopwareClientId,
+          clientSecret: creds.shopwareClientSecret,
+          basicUser: creds.shopwareBasicUser || undefined,
+          basicPass: creds.shopwareBasicPass || undefined,
+        });
+      } else if (shop === 'shopify') {
+        products = await fetchAllShopifyProducts({
+          domain: creds.shopifyDomain,
+          token: creds.shopifyToken,
+        });
+      } else {
+        products = await fetchAllTikTokProducts({
+          appKey: creds.tiktokAppKey,
+          appSecret: creds.tiktokAppSecret,
+          accessToken: creds.tiktokAccessToken,
+          shopCipher: creds.tiktokShopCipher,
+        });
+      }
       replaceCatalog(
         shop,
-        products.map((p) => ({ shop, ...p }))
+        products.map((p) => ({ shop, ...p })),
       );
       const n = catalogCount(shop);
-      setCounts((c) => ({ ...c, [shop]: n }));
+      setCounts((c) => ({ ...c, [shop === 'tiktok_shop' ? 'tiktok' : shop]: n }));
       Alert.alert('Artikel synchronisiert', `${n} Artikel lokal gespeichert.`);
     } catch (e: any) {
       Alert.alert('Sync fehlgeschlagen', e?.message || 'Unbekannter Fehler');
@@ -96,122 +201,279 @@ export default function SettingsScreen() {
     }
   };
 
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      {children}
-    </View>
-  );
-
-  const Field = (props: {
-    label: string;
-    value: string;
-    onChange: (v: string) => void;
-    placeholder: string;
-    secure?: boolean;
-  }) => (
-    <View style={{ marginTop: 10 }}>
-      <Text style={styles.inputLabel}>{props.label}</Text>
-      <TextInput
-        style={styles.textInput}
-        value={props.value}
-        onChangeText={props.onChange}
-        placeholder={props.placeholder}
-        placeholderTextColor="#64748B"
-        autoCapitalize="none"
-        autoCorrect={false}
-        secureTextEntry={!!props.secure}
-      />
-    </View>
-  );
-
-  const ActionBtn = (props: { label: string; onPress: () => void; busyKey: Busy; primary?: boolean }) => (
-    <TouchableOpacity
-      style={[styles.actionBtn, props.primary && styles.actionBtnPrimary]}
-      onPress={props.onPress}
-      disabled={busy !== ''}
-    >
-      {busy === props.busyKey ? (
-        <ActivityIndicator size="small" color={props.primary ? '#FFFFFF' : '#6366F1'} />
-      ) : (
-        <Text style={[styles.actionBtnText, props.primary && styles.actionBtnTextPrimary]}>{props.label}</Text>
-      )}
-    </TouchableOpacity>
-  );
-
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 48 }}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ paddingBottom: 120 }}
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={styles.secureBanner}>
         {isSecureStorage ? (
           <>
             <Lock size={16} color="#10B981" style={{ marginRight: 8 }} />
             <Text style={styles.secureBannerTextOk}>
-              Zugangsdaten werden verschlüsselt im SecureStore dieses Geräts gespeichert und nirgendwo sonst.
+              Zugangsdaten werden verschlüsselt im SecureStore dieses Geräts gespeichert und
+              nirgendwo sonst.
             </Text>
           </>
         ) : (
           <>
             <AlertCircle size={16} color="#F59E0B" style={{ marginRight: 8 }} />
             <Text style={styles.secureBannerTextWarn}>
-              Web-Version: Zugangsdaten liegen im Browser-Speicher (weniger sicher als auf dem Handy).
+              Web-Version: Zugangsdaten liegen im Browser-Speicher (weniger sicher als auf dem
+              Handy).
             </Text>
           </>
         )}
       </View>
 
       <Section title="OPENAI (Transkription & Extraktion)">
-        <Field label="API-Key" value={creds.openaiKey} onChange={update('openaiKey')} placeholder="sk-…" secure />
+        <Field
+          label="API-Key"
+          value={creds.openaiKey}
+          onChange={update('openaiKey')}
+          placeholder="sk-…"
+          secure
+        />
         <View style={styles.btnRow}>
-          <ActionBtn label="Verbindung testen" busyKey="openai" onPress={() => runTest('openai', () => testOpenAI(creds.openaiKey), 'OpenAI-Key funktioniert.')} />
+          <ActionBtn
+            label="Verbindung testen"
+            busyKey="openai"
+            busy={busy}
+            onPress={() =>
+              runTest('openai', () => testOpenAI(creds.openaiKey), 'OpenAI-Key funktioniert.')
+            }
+          />
         </View>
       </Section>
 
       <Section title="SHOPWARE">
-        <Field label="Shop-URL" value={creds.shopwareUrl} onChange={update('shopwareUrl')} placeholder="https://mein-shop.de" />
-        <Field label="Client-ID (Integration)" value={creds.shopwareClientId} onChange={update('shopwareClientId')} placeholder="SWIA…" />
-        <Field label="Client-Secret" value={creds.shopwareClientSecret} onChange={update('shopwareClientSecret')} placeholder="•••" secure />
+        <Field
+          label="Shop-URL"
+          value={creds.shopwareUrl}
+          onChange={update('shopwareUrl')}
+          placeholder="https://mein-shop.de"
+        />
+        <Field
+          label="Client-ID (Integration)"
+          value={creds.shopwareClientId}
+          onChange={update('shopwareClientId')}
+          placeholder="SWIA…"
+        />
+        <Field
+          label="Client-Secret"
+          value={creds.shopwareClientSecret}
+          onChange={update('shopwareClientSecret')}
+          placeholder="•••"
+          secure
+        />
+        <Field
+          label="Instanz-IDs (JSON, optional – leer = Standard-Testshop)"
+          value={creds.shopwareIds}
+          onChange={update('shopwareIds')}
+          placeholder={SHOPWARE_IDS_PLACEHOLDER}
+          multiline
+        />
+        <Field
+          label="HTTP-Basic-Auth Benutzer (optional)"
+          value={creds.shopwareBasicUser}
+          onChange={update('shopwareBasicUser')}
+          placeholder="benutzername"
+        />
+        <Field
+          label="HTTP-Basic-Auth Passwort (optional)"
+          value={creds.shopwareBasicPass}
+          onChange={update('shopwareBasicPass')}
+          placeholder="passwort"
+          secure
+        />
         <View style={styles.btnRow}>
           <ActionBtn
             label="Verbindung testen"
             busyKey="shopware"
+            busy={busy}
             onPress={() =>
               runTest(
                 'shopware',
-                () => testShopware({ url: creds.shopwareUrl, clientId: creds.shopwareClientId, clientSecret: creds.shopwareClientSecret }),
-                'Shopware-Anmeldung funktioniert.'
+                () =>
+                  testShopware({
+                    url: creds.shopwareUrl,
+                    clientId: creds.shopwareClientId,
+                    clientSecret: creds.shopwareClientSecret,
+                    basicUser: creds.shopwareBasicUser || undefined,
+                    basicPass: creds.shopwareBasicPass || undefined,
+                  }),
+                'Shopware-Anmeldung funktioniert.',
               )
             }
           />
-          <ActionBtn label={`Artikel sync (${counts.shopware})`} busyKey="sync_shopware" onPress={() => runSync('shopware')} />
+          <ActionBtn
+            label={`Artikel sync (${counts.shopware})`}
+            busyKey="sync_shopware"
+            busy={busy}
+            onPress={() => runSync('shopware')}
+          />
+          <ActionBtn
+            label="IDs sync"
+            busyKey="sync_ids"
+            busy={busy}
+            onPress={async () => {
+              setBusy('sync_ids');
+              try {
+                await setAllCreds(creds);
+                const ids = await syncShopwareIds({
+                  url: creds.shopwareUrl,
+                  clientId: creds.shopwareClientId,
+                  clientSecret: creds.shopwareClientSecret,
+                  basicUser: creds.shopwareBasicUser || undefined,
+                  basicPass: creds.shopwareBasicPass || undefined,
+                });
+                const json = JSON.stringify(ids, null, 2);
+                setCreds((c) => ({ ...c, shopwareIds: json }));
+                await setAllCreds({ ...creds, shopwareIds: json });
+                Alert.alert('IDs synchronisiert', 'Instanz-IDs wurden automatisch aus dem Shop gelesen und gespeichert.');
+              } catch (e: any) {
+                Alert.alert('Fehler', e?.message || 'IDs konnten nicht gelesen werden.');
+              } finally {
+                setBusy('');
+              }
+            }}
+          />
         </View>
       </Section>
 
       <Section title="SHOPIFY">
-        <Field label="Shop-Domain" value={creds.shopifyDomain} onChange={update('shopifyDomain')} placeholder="mein-shop.myshopify.com" />
-        <Field label="Admin-API-Token (Custom App)" value={creds.shopifyToken} onChange={update('shopifyToken')} placeholder="shpat_…" secure />
+        <Field
+          label="Shop-Domain"
+          value={creds.shopifyDomain}
+          onChange={update('shopifyDomain')}
+          placeholder="mein-shop.myshopify.com"
+        />
+        <Field
+          label="Admin-API-Token (Custom App)"
+          value={creds.shopifyToken}
+          onChange={update('shopifyToken')}
+          placeholder="shpat_…"
+          secure
+        />
         <View style={styles.btnRow}>
           <ActionBtn
             label="Verbindung testen"
             busyKey="shopify"
-            onPress={() => runTest('shopify', () => testShopify({ domain: creds.shopifyDomain, token: creds.shopifyToken }), 'Shopify-Verbindung funktioniert.')}
+            busy={busy}
+            onPress={() =>
+              runTest(
+                'shopify',
+                () => testShopify({ domain: creds.shopifyDomain, token: creds.shopifyToken }),
+                'Shopify-Verbindung funktioniert.',
+              )
+            }
           />
-          <ActionBtn label={`Artikel sync (${counts.shopify})`} busyKey="sync_shopify" onPress={() => runSync('shopify')} />
+          <ActionBtn
+            label={`Artikel sync (${counts.shopify})`}
+            busyKey="sync_shopify"
+            busy={busy}
+            onPress={() => runSync('shopify')}
+          />
+        </View>
+      </Section>
+
+      <Section title="TIKTOK SHOP">
+        <Field
+          label="App Key"
+          value={creds.tiktokAppKey}
+          onChange={update('tiktokAppKey')}
+          placeholder="7xyz…"
+        />
+        <Field
+          label="App Secret"
+          value={creds.tiktokAppSecret}
+          onChange={update('tiktokAppSecret')}
+          placeholder="•••"
+          secure
+        />
+        <Field
+          label="Access Token (aus Seller Center)"
+          value={creds.tiktokAccessToken}
+          onChange={update('tiktokAccessToken')}
+          placeholder="ROW_…"
+          secure
+        />
+        <Field
+          label="Shop Cipher"
+          value={creds.tiktokShopCipher}
+          onChange={update('tiktokShopCipher')}
+          placeholder="ROW_…"
+        />
+        <View style={styles.btnRow}>
+          <ActionBtn
+            label="Verbindung testen"
+            busyKey="tiktok"
+            busy={busy}
+            onPress={() =>
+              runTest(
+                'tiktok',
+                () =>
+                  testTikTok({
+                    appKey: creds.tiktokAppKey,
+                    appSecret: creds.tiktokAppSecret,
+                    accessToken: creds.tiktokAccessToken,
+                    shopCipher: creds.tiktokShopCipher,
+                  }),
+                'TikTok Shop Verbindung funktioniert.',
+              )
+            }
+          />
+          <ActionBtn
+            label={`Artikel sync (${counts.tiktok})`}
+            busyKey="sync_tiktok"
+            busy={busy}
+            onPress={() => runSync('tiktok_shop')}
+          />
         </View>
       </Section>
 
       <Section title="HUBSPOT">
-        <Field label="Private-App-Token" value={creds.hubspotToken} onChange={update('hubspotToken')} placeholder="pat-…" secure />
+        <Field
+          label="Private-App-Token"
+          value={creds.hubspotToken}
+          onChange={update('hubspotToken')}
+          placeholder="pat-…"
+          secure
+        />
         <View style={styles.btnRow}>
           <ActionBtn
             label="Verbindung testen"
             busyKey="hubspot"
-            onPress={() => runTest('hubspot', () => testHubspot({ token: creds.hubspotToken }), 'HubSpot-Verbindung funktioniert.')}
+            busy={busy}
+            onPress={() =>
+              runTest(
+                'hubspot',
+                () => testHubspot({ token: creds.hubspotToken }),
+                'HubSpot-Verbindung funktioniert.',
+              )
+            }
           />
         </View>
       </Section>
 
       <Section title="GOOGLE SHEETS">
-        <Field label="Sheet-ID (für Tabellen-Export)" value={creds.googleSheetId} onChange={update('googleSheetId')} placeholder="1a2b3c4d…" />
+        <Field
+          label="Apps Script URL (für direkten Push)"
+          value={creds.googleScriptUrl}
+          onChange={update('googleScriptUrl')}
+          placeholder="https://script.google.com/macros/s/…/exec"
+        />
+        <Field
+          label="Sheet-ID (optional, für Vorschau-Link)"
+          value={creds.googleSheetId}
+          onChange={update('googleSheetId')}
+          placeholder="1a2b3c4d…"
+        />
       </Section>
 
       <TouchableOpacity style={styles.saveButton} onPress={save} disabled={busy !== ''}>
@@ -229,11 +491,13 @@ export default function SettingsScreen() {
         <View style={[styles.secureBanner, { marginTop: 16 }]}>
           <AlertCircle size={16} color="#F59E0B" style={{ marginRight: 8 }} />
           <Text style={styles.secureBannerTextWarn}>
-            Im Browser sind Shopware/Shopify/HubSpot wegen Browser-Sicherheitsregeln (CORS) nicht nutzbar — bitte die Mobil-App verwenden.
+            Im Browser sind Shopware/Shopify/HubSpot wegen Browser-Sicherheitsregeln (CORS) nicht
+            nutzbar — bitte die Mobil-App verwenden.
           </Text>
         </View>
       )}
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -271,6 +535,7 @@ const styles = StyleSheet.create({
     color: '#F8FAFC',
     fontSize: 14,
   },
+  textInputMultiline: { minHeight: 96, textAlignVertical: 'top' },
   btnRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
   actionBtn: {
     flex: 1,

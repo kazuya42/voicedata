@@ -1,11 +1,12 @@
-// Lokale Ziele ohne Server: CSV, E-Mail-Text, Google-Sheets-Zeile.
-// Port der bisherigen n8n-Code-Nodes „CSV erstellen", „Email erstellen", „Google Sheets".
+// Lokale Ziele ohne Server: CSV, E-Mail-Text, Google-Sheets-Zeile + direkter Push per Apps Script.
 import { ParsedFields, TextPreview } from './types';
+import { fetchWithRetry } from './http';
 
 const esc = (v: unknown) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
 
 export function buildCsv(fields: ParsedFields): TextPreview {
-  const header = 'Kunde,Email,Strasse,PLZ,Ort,Produkt,Menge,LieferEmpfaenger,LieferStrasse,LieferPLZ,LieferOrt';
+  const header =
+    'Kunde,Email,Strasse,PLZ,Ort,Produkt,Menge,LieferEmpfaenger,LieferStrasse,LieferPLZ,LieferOrt';
   const row = [
     fields.customerName,
     fields.customerEmail,
@@ -36,6 +37,34 @@ export function buildEmailText(fields: ParsedFields): TextPreview {
   }
   text += `\nProdukt: ${fields.productName}\nMenge: ${fields.quantity || 1}`;
   return { type: 'email', data: text };
+}
+
+// Direkter Push an ein Google Apps Script Web App.
+// Content-Type text/plain vermeidet CORS-Preflight (Apps Script unterstützt OPTIONS nicht).
+export async function pushToGoogleSheets(fields: ParsedFields, scriptUrl: string): Promise<void> {
+  if (!scriptUrl) throw new Error('Google Apps Script URL fehlt (Einstellungen → Google Sheets).');
+  const body = JSON.stringify({
+    customerName: fields.customerName,
+    customerEmail: fields.customerEmail,
+    customerStreet: fields.customerStreet || '',
+    customerZip: fields.customerZip || '',
+    customerCity: fields.customerCity || '',
+    productName: fields.productName,
+    productNumber: fields.productNumber || '',
+    quantity: fields.quantity || 1,
+    deliveryName: fields.deliveryName || '',
+    deliveryStreet: fields.deliveryStreet || '',
+    deliveryZip: fields.deliveryZip || '',
+    deliveryCity: fields.deliveryCity || '',
+  });
+  const response = await fetchWithRetry(
+    scriptUrl,
+    { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body },
+    { timeoutMs: 20_000, retries: 1 },
+  );
+  if (!response.ok) throw new Error(`Google Sheets: HTTP ${response.status}`);
+  const json = await response.json();
+  if (!json?.ok) throw new Error(`Google Sheets: ${json?.error || 'Unbekannter Fehler'}`);
 }
 
 export function buildSheetsRow(fields: ParsedFields, googleSheetId: string): TextPreview {

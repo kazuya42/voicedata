@@ -17,6 +17,7 @@ function getDb(): Db | null {
   if (Platform.OS === 'web') return null;
   if (!db) {
     // Lazy require, damit der Web-Bundle das native Modul nicht laden muss
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const SQLite = require('expo-sqlite');
     db = SQLite.openDatabaseSync('voicedata.db') as Db;
     db.execSync(`
@@ -48,7 +49,7 @@ export function replaceCatalog(shop: CatalogShop, products: CatalogProduct[]): v
   for (const p of products) {
     d.runSync(
       'INSERT OR REPLACE INTO products (shop, externalId, number, name, priceGross, taxRate, syncedAt) VALUES (?,?,?,?,?,?,?)',
-      [p.shop, p.externalId, p.number, p.name, p.priceGross, p.taxRate, now]
+      [p.shop, p.externalId, p.number, p.name, p.priceGross, p.taxRate, now],
     );
   }
 }
@@ -56,27 +57,48 @@ export function replaceCatalog(shop: CatalogShop, products: CatalogProduct[]): v
 export function catalogCount(shop: CatalogShop): number {
   const d = getDb();
   if (!d) return memStore.filter((p) => p.shop === shop).length;
-  const rows = d.getAllSync<{ c: number }>('SELECT COUNT(*) AS c FROM products WHERE shop = ?', [shop]);
+  const rows = d.getAllSync<{ c: number }>('SELECT COUNT(*) AS c FROM products WHERE shop = ?', [
+    shop,
+  ]);
   return rows[0]?.c ?? 0;
 }
 
-export function searchCatalog(shop: CatalogShop, query: string, limit: number = 8): CatalogProduct[] {
+export function searchCatalog(
+  shop: CatalogShop,
+  query: string,
+  limit: number = 8,
+): CatalogProduct[] {
   const q = (query || '').trim();
-  if (!q) return [];
   const d = getDb();
   if (!d) {
+    if (!q) return memStore.filter((p) => p.shop === shop).slice(0, limit);
     const lq = q.toLowerCase();
     return memStore
-      .filter((p) => p.shop === shop && (p.number.toLowerCase().includes(lq) || p.name.toLowerCase().includes(lq)))
+      .filter(
+        (p) =>
+          p.shop === shop &&
+          (p.number.toLowerCase().includes(lq) || p.name.toLowerCase().includes(lq)),
+      )
       .slice(0, limit);
   }
-  return d.getAllSync<CatalogProduct>(
+  if (!q) {
+    // Leere Suche: erste N Artikel alphabetisch zurückgeben (für "Alle anzeigen")
+    const rows = d.getAllSync<CatalogProduct>(
+      'SELECT shop, externalId, number, name, priceGross, taxRate FROM products WHERE shop = ? ORDER BY name LIMIT ?',
+      [shop, limit],
+    );
+    console.log(`[catalog] empty query, shop=${shop}, count=${rows.length}`);
+    return rows;
+  }
+  const rows = d.getAllSync<CatalogProduct>(
     `SELECT shop, externalId, number, name, priceGross, taxRate FROM products
      WHERE shop = ? AND (number LIKE ? OR name LIKE ?)
      ORDER BY CASE WHEN number = ? THEN 0 WHEN number LIKE ? THEN 1 ELSE 2 END, name
      LIMIT ?`,
-    [shop, `%${q}%`, `%${q}%`, q, `${q}%`, limit]
+    [shop, `%${q}%`, `%${q}%`, q, `${q}%`, limit],
   );
+  console.log(`[catalog] query="${q}", shop=${shop}, results=${rows.length}`);
+  return rows;
 }
 
 export function findByNumber(shop: CatalogShop, number: string): CatalogProduct | null {
@@ -86,7 +108,7 @@ export function findByNumber(shop: CatalogShop, number: string): CatalogProduct 
   if (!d) return memStore.find((p) => p.shop === shop && p.number === n) || null;
   const rows = d.getAllSync<CatalogProduct>(
     'SELECT shop, externalId, number, name, priceGross, taxRate FROM products WHERE shop = ? AND number = ? LIMIT 1',
-    [shop, n]
+    [shop, n],
   );
   return rows[0] || null;
 }

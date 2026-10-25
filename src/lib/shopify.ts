@@ -2,6 +2,7 @@
 // Produkt-Sync für den lokalen Katalog, Kunden-Suche, Bestellung mit Liefer-/Rechnungsanschrift.
 import { ParsedFields, ShopPreview, deliveryFromFields, splitName } from './types';
 import { findByNumber, searchCatalog } from './catalog';
+import { fetchWithRetry, parseApiError } from './http';
 
 export type ShopifyCreds = {
   domain: string; // z.B. mein-shop.myshopify.com
@@ -11,7 +12,10 @@ export type ShopifyCreds = {
 const API_VERSION = '2025-01';
 
 const baseUrl = (creds: ShopifyCreds) =>
-  `https://${creds.domain.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '')}/admin/api/${API_VERSION}`;
+  `https://${creds.domain
+    .trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '')}/admin/api/${API_VERSION}`;
 
 const headers = (creds: ShopifyCreds) => ({
   'X-Shopify-Access-Token': creds.token,
@@ -19,26 +23,22 @@ const headers = (creds: ShopifyCreds) => ({
   Accept: 'application/json',
 });
 
-async function shopifyError(response: Response, context: string): Promise<Error> {
-  let msg = `${context}: HTTP ${response.status}`;
-  try {
-    const j = await response.json();
-    if (j?.errors) msg += ` – ${typeof j.errors === 'string' ? j.errors : JSON.stringify(j.errors)}`;
-  } catch {}
-  return new Error(msg);
-}
-
 export async function testShopify(creds: ShopifyCreds): Promise<void> {
-  const response = await fetch(`${baseUrl(creds)}/shop.json`, { headers: headers(creds) });
-  if (!response.ok) throw await shopifyError(response, 'Shopify-Verbindung');
+  const response = await fetchWithRetry(
+    `${baseUrl(creds)}/shop.json`,
+    { headers: headers(creds) },
+    { retries: 1 },
+  );
+  if (!response.ok) throw await parseApiError(response, 'Shopify-Verbindung');
 }
 
 async function findShopifyCustomer(creds: ShopifyCreds, email: string): Promise<any | null> {
-  const response = await fetch(
+  const response = await fetchWithRetry(
     `${baseUrl(creds)}/customers/search.json?query=${encodeURIComponent(`email:${email}`)}`,
-    { headers: headers(creds) }
+    { headers: headers(creds) },
+    { retries: 2 },
   );
-  if (!response.ok) throw await shopifyError(response, 'Shopify-Kundensuche');
+  if (!response.ok) throw await parseApiError(response, 'Shopify-Kundensuche');
   const json = await response.json();
   return json.customers?.[0] || null;
 }
@@ -46,29 +46,43 @@ async function findShopifyCustomer(creds: ShopifyCreds, email: string): Promise<
 // Variante zum Produkt finden: zuerst lokaler Katalog (SKU/Name), dann Live-Suche per Titel
 async function findVariant(
   creds: ShopifyCreds,
-  fields: ParsedFields
+  fields: ParsedFields,
 ): Promise<{ variantId: string; name: string; sku: string; price: number } | null> {
   const local =
     findByNumber('shopify', fields.productNumber) ||
     searchCatalog('shopify', fields.productNumber || fields.productName, 1)[0];
   if (local) {
-    return { variantId: local.externalId, name: local.name, sku: local.number, price: local.priceGross };
+    return {
+      variantId: local.externalId,
+      name: local.name,
+      sku: local.number,
+      price: local.priceGross,
+    };
   }
   if (!fields.productName) return null;
-  const response = await fetch(
+  const response = await fetchWithRetry(
     `${baseUrl(creds)}/products.json?title=${encodeURIComponent(fields.productName)}&limit=1`,
-    { headers: headers(creds) }
+    { headers: headers(creds) },
+    { retries: 2 },
   );
-  if (!response.ok) throw await shopifyError(response, 'Shopify-Produktsuche');
+  if (!response.ok) throw await parseApiError(response, 'Shopify-Produktsuche');
   const json = await response.json();
   const p = json.products?.[0];
   const v = p?.variants?.[0];
   if (!p || !v) return null;
-  return { variantId: String(v.id), name: p.title, sku: v.sku || '', price: parseFloat(v.price) || 0 };
+  return {
+    variantId: String(v.id),
+    name: p.title,
+    sku: v.sku || '',
+    price: parseFloat(v.price) || 0,
+  };
 }
 
 // Vorschau ohne Nebenwirkungen
-export async function shopifyPreview(fields: ParsedFields, creds: ShopifyCreds): Promise<ShopPreview> {
+export async function shopifyPreview(
+  fields: ParsedFields,
+  creds: ShopifyCreds,
+): Promise<ShopPreview> {
   const [customer, variant] = await Promise.all([
     findShopifyCustomer(creds, fields.customerEmail),
     findVariant(creds, fields),
@@ -99,7 +113,7 @@ export async function shopifyPreview(fields: ParsedFields, creds: ShopifyCreds):
 // Bestellung anlegen (financial_status pending ≙ Vorkasse)
 export async function shopifyConfirmOrder(
   fields: ParsedFields,
-  creds: ShopifyCreds
+  creds: ShopifyCreds,
 ): Promise<{ orderNumber: string; total: number; customerWasCreated: boolean }> {
   const variant = await findVariant(creds, fields);
   if (!variant) throw new Error('Produkt nicht in Shopify gefunden.');
@@ -130,7 +144,9 @@ export async function shopifyConfirmOrder(
 
   const orderBody = {
     order: {
-      line_items: [{ variant_id: Number(variant.variantId), quantity: Math.max(1, fields.quantity || 1) }],
+      line_items: [
+        { variant_id: Number(variant.variantId), quantity: Math.max(1, fields.quantity || 1) },
+      ],
       customer: existing
         ? { id: existing.id }
         : { first_name: firstName, last_name: lastName, email: fields.customerEmail },
@@ -144,12 +160,13 @@ export async function shopifyConfirmOrder(
     },
   };
 
-  const response = await fetch(`${baseUrl(creds)}/orders.json`, {
+  // Bestellung anlegen = nicht idempotent -> kein Auto-Retry (Doppelbestellung vermeiden).
+  const response = await fetchWithRetry(`${baseUrl(creds)}/orders.json`, {
     method: 'POST',
     headers: headers(creds),
     body: JSON.stringify(orderBody),
   });
-  if (!response.ok) throw await shopifyError(response, 'Shopify-Bestellung anlegen');
+  if (!response.ok) throw await parseApiError(response, 'Shopify-Bestellung anlegen');
   const json = await response.json();
   const order = json.order;
   return {
@@ -161,15 +178,27 @@ export async function shopifyConfirmOrder(
 
 // Alle Produkte/Varianten seitenweise für den lokalen Katalog laden (page_info-Pagination)
 export async function fetchAllShopifyProducts(
-  creds: ShopifyCreds
-): Promise<{ externalId: string; number: string; name: string; priceGross: number; taxRate: number | null }[]> {
-  const out: { externalId: string; number: string; name: string; priceGross: number; taxRate: number | null }[] = [];
+  creds: ShopifyCreds,
+): Promise<
+  { externalId: string; number: string; name: string; priceGross: number; taxRate: number | null }[]
+> {
+  const out: {
+    externalId: string;
+    number: string;
+    name: string;
+    priceGross: number;
+    taxRate: number | null;
+  }[] = [];
   let url: string | null = `${baseUrl(creds)}/products.json?limit=250&fields=id,title,variants`;
   let guard = 0;
   while (url && guard < 200) {
     guard += 1;
-    const response: Response = await fetch(url, { headers: headers(creds) });
-    if (!response.ok) throw await shopifyError(response, 'Shopify-Produkt-Sync');
+    const response: Response = await fetchWithRetry(
+      url,
+      { headers: headers(creds) },
+      { retries: 2 },
+    );
+    if (!response.ok) throw await parseApiError(response, 'Shopify-Produkt-Sync');
     const json = await response.json();
     for (const p of json.products || []) {
       for (const v of p.variants || []) {

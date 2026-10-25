@@ -13,10 +13,18 @@ export type CredKey =
   | 'shopwareUrl'
   | 'shopwareClientId'
   | 'shopwareClientSecret'
+  | 'shopwareIds'
+  | 'shopwareBasicUser'
+  | 'shopwareBasicPass'
   | 'shopifyDomain'
   | 'shopifyToken'
+  | 'tiktokAppKey'
+  | 'tiktokAppSecret'
+  | 'tiktokAccessToken'
+  | 'tiktokShopCipher'
   | 'hubspotToken'
-  | 'googleSheetId';
+  | 'googleSheetId'
+  | 'googleScriptUrl';
 
 export async function getCred(key: CredKey): Promise<string> {
   try {
@@ -47,10 +55,18 @@ const ALL_KEYS: CredKey[] = [
   'shopwareUrl',
   'shopwareClientId',
   'shopwareClientSecret',
+  'shopwareIds',
+  'shopwareBasicUser',
+  'shopwareBasicPass',
   'shopifyDomain',
   'shopifyToken',
+  'tiktokAppKey',
+  'tiktokAppSecret',
+  'tiktokAccessToken',
+  'tiktokShopCipher',
   'hubspotToken',
   'googleSheetId',
+  'googleScriptUrl',
 ];
 
 export async function getAllCreds(): Promise<AllCreds> {
@@ -59,7 +75,5 @@ export async function getAllCreds(): Promise<AllCreds> {
 }
 
 export async function setAllCreds(creds: Partial<AllCreds>): Promise<void> {
-  await Promise.all(
-    (Object.keys(creds) as CredKey[]).map((k) => setCred(k, creds[k] ?? ''))
-  );
+  await Promise.all((Object.keys(creds) as CredKey[]).map((k) => setCred(k, creds[k] ?? '')));
 }
