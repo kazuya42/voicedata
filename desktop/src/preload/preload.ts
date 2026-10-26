@@ -13,7 +13,10 @@ function subscribe<T>(channel: string, cb: (payload: T) => void): () => void {
 const api: VdApi = {
   getSettings: () => ipcRenderer.invoke(IPC.settingsGet),
   saveSettings: (patch) => ipcRenderer.invoke(IPC.settingsSave, patch),
-  testOpenAI: () => ipcRenderer.invoke(IPC.openaiTest),
+  getCreds: () => ipcRenderer.invoke(IPC.credsGet),
+  saveCreds: (patch) => ipcRenderer.invoke(IPC.credsSave, patch),
+  testIntegration: (kind) => ipcRenderer.invoke(IPC.integrationTest, kind),
+  listOllamaModels: (url) => ipcRenderer.invoke(IPC.ollamaModels, url),
   modelStatus: () => ipcRenderer.invoke(IPC.modelStatus),
   downloadModel: (model) => ipcRenderer.invoke(IPC.modelDownload, model),
   onModelProgress: (cb) => subscribe(IPC.modelProgress, cb),
@@ -33,6 +36,25 @@ const api: VdApi = {
   sendSessionWebhook: (id) => ipcRenderer.invoke(IPC.sessionsSendWebhook, id),
   testWebhook: (url) => ipcRenderer.invoke(IPC.webhookTest, url),
   onSessionUpdated: (cb) => subscribe(IPC.sessionUpdated, cb),
+  syncCatalog: (shop) => ipcRenderer.invoke(IPC.catalogSync, shop),
+  catalogCounts: () => ipcRenderer.invoke(IPC.catalogCounts),
+  searchCatalog: (shop, query, limit) => ipcRenderer.invoke(IPC.catalogSearch, shop, query, limit),
+  syncShopwareIds: () => ipcRenderer.invoke(IPC.shopwareSyncIds),
+  orderFromAudio: (pcm) => ipcRenderer.invoke(IPC.orderFromAudio, pcm),
+  orderFromText: (text) => ipcRenderer.invoke(IPC.orderFromText, text),
+  listOrders: () => ipcRenderer.invoke(IPC.ordersList),
+  updateOrderFields: (id, fields) => ipcRenderer.invoke(IPC.ordersUpdateFields, id, fields),
+  deleteOrder: (id) => ipcRenderer.invoke(IPC.ordersDelete, id),
+  deleteAllOrders: () => ipcRenderer.invoke(IPC.ordersDeleteAll),
+  markOrderSent: (id, target, info) => ipcRenderer.invoke(IPC.ordersMarkSent, id, target, info),
+  previewOrder: (target, fields) => ipcRenderer.invoke(IPC.orderPreview, target, fields),
+  confirmOrder: (target, fields, preview, transcriptId) =>
+    ipcRenderer.invoke(IPC.orderConfirm, target, fields, preview, transcriptId),
+  pushOrderToSheets: (fields, transcriptId) =>
+    ipcRenderer.invoke(IPC.orderSheetsPush, fields, transcriptId),
+  saveCsv: (csv) => ipcRenderer.invoke(IPC.saveCsv, csv),
+  copyText: (text) => ipcRenderer.invoke(IPC.copyText, text),
+  openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
 };
 
 contextBridge.exposeInMainWorld('vd', api);

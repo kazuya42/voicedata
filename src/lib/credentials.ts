@@ -3,28 +3,11 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CRED_KEYS, CredKey } from './types';
 
 const PREFIX = 'vd_cred_';
 
 export const isSecureStorage = Platform.OS !== 'web';
-
-export type CredKey =
-  | 'openaiKey'
-  | 'shopwareUrl'
-  | 'shopwareClientId'
-  | 'shopwareClientSecret'
-  | 'shopwareIds'
-  | 'shopwareBasicUser'
-  | 'shopwareBasicPass'
-  | 'shopifyDomain'
-  | 'shopifyToken'
-  | 'tiktokAppKey'
-  | 'tiktokAppSecret'
-  | 'tiktokAccessToken'
-  | 'tiktokShopCipher'
-  | 'hubspotToken'
-  | 'googleSheetId'
-  | 'googleScriptUrl';
 
 export async function getCred(key: CredKey): Promise<string> {
   try {
@@ -49,28 +32,8 @@ export async function setCred(key: CredKey, value: string): Promise<void> {
 }
 
 export type AllCreds = Record<CredKey, string>;
-
-const ALL_KEYS: CredKey[] = [
-  'openaiKey',
-  'shopwareUrl',
-  'shopwareClientId',
-  'shopwareClientSecret',
-  'shopwareIds',
-  'shopwareBasicUser',
-  'shopwareBasicPass',
-  'shopifyDomain',
-  'shopifyToken',
-  'tiktokAppKey',
-  'tiktokAppSecret',
-  'tiktokAccessToken',
-  'tiktokShopCipher',
-  'hubspotToken',
-  'googleSheetId',
-  'googleScriptUrl',
-];
-
 export async function getAllCreds(): Promise<AllCreds> {
-  const entries = await Promise.all(ALL_KEYS.map(async (k) => [k, await getCred(k)] as const));
+  const entries = await Promise.all(CRED_KEYS.map(async (k) => [k, await getCred(k)] as const));
   return Object.fromEntries(entries) as AllCreds;
 }
 

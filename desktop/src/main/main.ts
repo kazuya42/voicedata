@@ -13,17 +13,46 @@ import {
   ipcMain,
   nativeImage,
   session,
+  shell,
   systemPreferences,
 } from 'electron';
-import type { AudioChunk, CaptureState, LocalModel, Session, SettingsPatch } from '../shared/types';
+import { catalogCount, searchCatalog } from '../../../src/lib/catalog';
+import { extractFields } from '../../../src/lib/extract';
+import { listOllamaModels } from '../../../src/lib/llm';
+import type {
+  CatalogShop,
+  ParsedFields,
+  PreviewData,
+  TargetSystem,
+  Transcript,
+} from '../../../src/lib/types';
+import type {
+  AudioChunk,
+  CaptureState,
+  Creds,
+  IntegrationTest,
+  LocalModel,
+  Session,
+  SettingsPatch,
+} from '../shared/types';
 import { IPC } from '../shared/types';
+import { initCatalog } from './catalogStore';
+import { getCreds, saveCreds } from './credentials';
 import { getEngine } from './engines';
-import { testOpenAI } from './engines/openai';
 import { MeetingFinalizer } from './finalize';
+import {
+  confirmOrder,
+  previewOrder,
+  pushOrderToSheets,
+  syncCatalog,
+  syncShopwareInstanceIds,
+  testIntegration,
+} from './integrations';
 import { downloadModel, modelStatus } from './models';
+import { OrderStore } from './orders';
 import { TranscriptionQueue } from './queue';
 import { SessionStore, toMarkdown } from './sessions';
-import { getOpenaiKey, getPublicSettings, getSettings, saveSettings } from './settings';
+import { getLlmConfig, getSettings, saveSettings } from './settings';
 import { buildPayload, sendWebhook, validateWebhookUrl } from './webhook';
 
 let win: BrowserWindow | null = null;
@@ -32,6 +61,7 @@ let isQuitting = false;
 let store: SessionStore;
 let queue: TranscriptionQueue;
 let finalizer: MeetingFinalizer;
+let orders: OrderStore;
 let closeTimer: NodeJS.Timeout | undefined;
 
 const send = (channel: string, payload: unknown) => {
@@ -159,7 +189,7 @@ async function setCapture(enabled: boolean): Promise<void> {
 }
 
 function registerIpc(): void {
-  ipcMain.handle(IPC.settingsGet, () => getPublicSettings());
+  ipcMain.handle(IPC.settingsGet, () => getSettings());
   ipcMain.handle(IPC.settingsSave, (_e, patch: SettingsPatch) => {
     // captureEnabled wird ausschließlich über setCapture gesteuert.
     const { captureEnabled: _ignored, ...rest } = patch;
@@ -169,11 +199,10 @@ function registerIpc(): void {
     }
     return saveSettings(rest);
   });
-  ipcMain.handle(IPC.openaiTest, async () => {
-    const key = getOpenaiKey();
-    if (!key) throw new Error('OpenAI-Key fehlt');
-    await testOpenAI(key);
-  });
+  ipcMain.handle(IPC.credsGet, () => getCreds());
+  ipcMain.handle(IPC.credsSave, (_e, patch: Partial<Creds>) => saveCreds(patch));
+  ipcMain.handle(IPC.integrationTest, (_e, kind: IntegrationTest) => testIntegration(kind));
+  ipcMain.handle(IPC.ollamaModels, (_e, url: string) => listOllamaModels(url));
   ipcMain.handle(IPC.modelStatus, () => modelStatus());
   ipcMain.handle(IPC.modelDownload, (_e, model: LocalModel) =>
     downloadModel(model, (received, total) => send(IPC.modelProgress, { model, received, total })),
@@ -223,6 +252,84 @@ function registerIpc(): void {
     };
     return sendWebhook(url, buildPayload(sample, 'test'));
   });
+  registerOrderIpc();
+}
+
+// Diktat bzw. Meeting-Text → Bestellfelder (KI) → als Entwurf speichern.
+async function createOrder(text: string): Promise<Transcript> {
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error('Kein Text erkannt – bitte erneut diktieren.');
+  const fields = await extractFields(trimmed, getLlmConfig());
+  return orders.save(trimmed, fields);
+}
+
+function registerOrderIpc(): void {
+  ipcMain.handle(IPC.catalogSync, (_e, shop: CatalogShop) => syncCatalog(shop));
+  ipcMain.handle(IPC.catalogCounts, () => ({
+    shopware: catalogCount('shopware'),
+    shopify: catalogCount('shopify'),
+    tiktok_shop: catalogCount('tiktok_shop'),
+  }));
+  ipcMain.handle(IPC.catalogSearch, (_e, shop: CatalogShop, query: string, limit: number) =>
+    searchCatalog(shop, query, limit),
+  );
+  ipcMain.handle(IPC.shopwareSyncIds, () => syncShopwareInstanceIds());
+  ipcMain.handle(IPC.orderFromAudio, async (_e, pcm: Float32Array) => {
+    const settings = getSettings();
+    const text = await getEngine(settings).transcribe(pcm, { language: settings.language });
+    return createOrder(text);
+  });
+  ipcMain.handle(IPC.orderFromText, (_e, text: string) => createOrder(text));
+  ipcMain.handle(IPC.ordersList, () => orders.list());
+  ipcMain.handle(IPC.ordersUpdateFields, (_e, id: string, fields: ParsedFields) =>
+    orders.updateFields(id, fields),
+  );
+  ipcMain.handle(IPC.ordersDelete, (_e, id: string) => orders.delete(id));
+  ipcMain.handle(IPC.ordersDeleteAll, () => orders.deleteAll());
+  ipcMain.handle(IPC.ordersMarkSent, (_e, id: string, target: TargetSystem, info: string) =>
+    orders.markSent(id, target, info),
+  );
+  ipcMain.handle(IPC.orderPreview, (_e, target: TargetSystem, fields: ParsedFields) =>
+    previewOrder(target, fields),
+  );
+  ipcMain.handle(
+    IPC.orderConfirm,
+    async (
+      _e,
+      target: TargetSystem,
+      fields: ParsedFields,
+      preview: PreviewData,
+      transcriptId: string | null,
+    ) => {
+      const message = await confirmOrder(target, fields, preview);
+      if (transcriptId) orders.markSent(transcriptId, target, message);
+      return message;
+    },
+  );
+  ipcMain.handle(
+    IPC.orderSheetsPush,
+    async (_e, fields: ParsedFields, transcriptId: string | null) => {
+      const message = await pushOrderToSheets(fields);
+      if (transcriptId) orders.markSent(transcriptId, 'google_sheets', message);
+      return message;
+    },
+  );
+  ipcMain.handle(IPC.saveCsv, async (_e, csv: string) => {
+    if (!win) return false;
+    const res = await dialog.showSaveDialog(win, {
+      defaultPath: 'voicedata_export.csv',
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+    });
+    if (res.canceled || !res.filePath) return false;
+    fs.writeFileSync(res.filePath, csv, 'utf8');
+    return true;
+  });
+  ipcMain.handle(IPC.copyText, (_e, text: string) => clipboard.writeText(text));
+  // Nur Mail-Entwürfe und Webseiten (Google Sheet) öffnen – keine beliebigen Protokolle.
+  ipcMain.handle(IPC.openExternal, (_e, url: string) => {
+    if (!/^(mailto:|https:\/\/)/i.test(url)) throw new Error('Link wird nicht unterstützt');
+    return shell.openExternal(url);
+  });
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -231,7 +338,10 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', showWindow);
 
   app.whenReady().then(() => {
-    store = new SessionStore(path.join(app.getPath('userData'), 'sessions'), (id) => {
+    const userData = app.getPath('userData');
+    initCatalog(userData);
+    orders = new OrderStore(userData);
+    store = new SessionStore(path.join(userData, 'sessions'), (id) => {
       void finalizer.onClosed(id);
     });
     queue = new TranscriptionQueue(store, getSettings, send);

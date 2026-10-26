@@ -232,3 +232,156 @@ table.metrics td {
   text-align: left;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- Bestellung / Transkripte / Integrationen ---------- */
+h3 {
+  font-size: 14px;
+  margin: 18px 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+textarea {
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  min-height: 90px;
+  resize: vertical;
+}
+input[type='number'] {
+  background: #1e293b;
+  color: #f8fafc;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+.grid2,
+.grid3 {
+  display: grid;
+  gap: 0 14px;
+  grid-template-columns: 1fr 1fr;
+  max-width: 760px;
+}
+.grid3 {
+  grid-template-columns: 2fr 1fr 90px;
+}
+.grid2.inner {
+  grid-template-columns: 110px 1fr;
+}
+.grid2 .field,
+.grid3 .field {
+  max-width: none;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+.chip.active {
+  background: #6366f1;
+  border-color: #6366f1;
+}
+.suggestions {
+  max-width: 760px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.suggestion {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+}
+.search-box {
+  max-width: 760px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.message {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  white-space: pre-line;
+  max-width: 760px;
+}
+.message.info {
+  background: #1e293b;
+}
+.message.success {
+  background: #052e1f;
+  color: #a7f3d0;
+}
+.message.error {
+  background: #451a1a;
+  color: #fecaca;
+}
+.preview-section {
+  background: #111c33;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  max-width: 760px;
+}
+.preview-title {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+.preview-strong {
+  font-weight: 700;
+}
+.preview-pre {
+  white-space: pre-wrap;
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  margin: 0;
+}
+.badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  background: #312e81;
+  color: #a5b4fc;
+}
+.badge.sent {
+  background: #052e1f;
+  color: #10b981;
+}
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.error {
+  color: #f87171;
+}
+.cred-section h2 {
+  margin-top: 26px;
+}
+details {
+  margin-top: 10px;
+}

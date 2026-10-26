@@ -1,5 +1,5 @@
 import type { Settings } from '../../shared/types';
-import { getOpenaiKey } from '../settings';
+import { getCreds } from '../credentials';
 import { modelPath, modelStatus } from '../models';
 import { createLocalEngine } from './local';
 import { createOpenAIEngine } from './openai';
@@ -7,8 +7,8 @@ import type { Engine } from './types';
 
 export function getEngine(settings: Settings): Engine {
   if (settings.engine === 'openai') {
-    const key = getOpenaiKey();
-    if (!key) throw new Error('OpenAI-Key fehlt');
+    const key = getCreds().openaiKey;
+    if (!key) throw new Error('OpenAI-Key fehlt (für die OpenAI-Transkription)');
     return createOpenAIEngine(key);
   }
   if (!modelStatus()[settings.localModel]) {

@@ -13,11 +13,13 @@
     <header>
       <div>
         <h1>VoiceData</h1>
-        <p class="muted">Meeting-Aufnahme mit Live-Transkription</p>
+        <p class="muted">Meetings, Diktate und Bestellungen</p>
       </div>
       <nav>
         <button data-view="live" class="active">Live</button>
         <button data-view="meetings">Meetings</button>
+        <button data-view="order">Bestellung</button>
+        <button data-view="orders">Transkripte</button>
         <button data-view="settings">Einstellungen</button>
       </nav>
     </header>
@@ -54,11 +56,89 @@
             <button id="detail-retry" class="hidden">Fehlgeschlagene erneut transkribieren</button>
             <button id="detail-summarize">Zusammenfassung erstellen</button>
             <button id="detail-webhook" class="hidden">An n8n senden</button>
+            <button id="detail-order">Als Bestellung übernehmen</button>
             <button id="detail-delete" class="danger">Löschen</button>
           </div>
           <div id="detail-insights" class="insights"></div>
           <div id="detail-list" class="transcript"></div>
         </div>
+      </section>
+
+      <section id="view-order" class="view hidden">
+        <div class="capture-row">
+          <button id="memo-toggle" class="toggle">Diktat starten</button>
+          <div>
+            <div id="memo-status" class="status">Bereit zur Aufnahme</div>
+            <div class="muted">Kunde, Adresse, Produkt und Menge einsprechen – max. 5 Minuten.</div>
+          </div>
+        </div>
+        <div id="order-message" class="message hidden"></div>
+
+        <div id="order-editor" class="hidden">
+          <h2>Erfasste Daten prüfen</h2>
+          <div class="muted">Zielsystem</div>
+          <div id="target-buttons" class="chips"></div>
+
+          <h3>Kunde</h3>
+          <div class="grid2">
+            <label class="field">Name<input id="f-customerName" type="text" /></label>
+            <label class="field">E-Mail<input id="f-customerEmail" type="text" /></label>
+            <label class="field"
+              >Straße &amp; Hausnummer<input id="f-customerStreet" type="text"
+            /></label>
+            <div class="grid2 inner">
+              <label class="field">PLZ<input id="f-customerZip" type="text" /></label>
+              <label class="field">Ort<input id="f-customerCity" type="text" /></label>
+            </div>
+          </div>
+
+          <h3>Abweichende Lieferanschrift (optional)</h3>
+          <div class="grid2">
+            <label class="field">Empfänger<input id="f-deliveryName" type="text" /></label>
+            <label class="field">Straße<input id="f-deliveryStreet" type="text" /></label>
+            <label class="field">PLZ<input id="f-deliveryZip" type="text" /></label>
+            <label class="field">Ort<input id="f-deliveryCity" type="text" /></label>
+          </div>
+
+          <h3>
+            Produkt
+            <button id="product-search-open" class="link">Artikel suchen…</button>
+          </h3>
+          <div class="grid3">
+            <label class="field">Produktname<input id="f-productName" type="text" /></label>
+            <label class="field">Artikelnummer<input id="f-productNumber" type="text" /></label>
+            <label class="field">Menge<input id="f-quantity" type="number" min="1" /></label>
+          </div>
+          <div id="product-suggestions" class="suggestions hidden"></div>
+
+          <div id="product-search" class="search-box hidden">
+            <input id="product-search-query" type="text" placeholder="Name oder Artikelnummer…" />
+            <div class="muted">Leer lassen = alle Artikel, oder Begriff eingeben…</div>
+            <div id="product-search-results" class="suggestions"></div>
+          </div>
+
+          <div class="actions">
+            <button id="order-preview-btn" class="primary">Verarbeiten</button>
+            <button id="order-close">Schließen</button>
+          </div>
+          <details>
+            <summary class="muted">Transkript anzeigen</summary>
+            <p id="order-transcript" class="muted"></p>
+          </details>
+        </div>
+
+        <div id="order-preview" class="hidden">
+          <h2 id="preview-title"></h2>
+          <div id="preview-body"></div>
+          <div id="preview-actions" class="actions"></div>
+        </div>
+      </section>
+
+      <section id="view-orders" class="view hidden">
+        <div class="actions">
+          <button id="orders-delete-all" class="danger">Alle löschen</button>
+        </div>
+        <div id="orders-list"></div>
       </section>
 
       <section id="view-settings" class="view hidden">
@@ -100,19 +180,35 @@
           <input id="capture-system" type="checkbox" /> Systemaudio aufnehmen (Meeting-Teilnehmer)
         </label>
 
-        <h2>OpenAI</h2>
+        <h2>KI für Zusammenfassung &amp; Bestelldaten</h2>
         <label class="field">
-          API-Key <span id="key-state" class="muted"></span>
-          <input id="openai-key" type="password" placeholder="sk-…" autocomplete="off" />
+          Anbieter
+          <select id="ai-provider">
+            <option value="openai">OpenAI (API-Key)</option>
+            <option value="openrouter">OpenRouter (viele Modelle, API-Key)</option>
+            <option value="ollama">Ollama (lokal auf diesem Mac, kostenlos, offline)</option>
+          </select>
+        </label>
+        <label class="field">
+          Modell <span id="ai-model-hint" class="muted"></span>
+          <input id="ai-model" type="text" list="ai-model-options" autocomplete="off" />
+          <datalist id="ai-model-options"></datalist>
+        </label>
+        <label id="ollama-url-field" class="field">
+          Ollama-Adresse
+          <input id="ollama-url" type="text" placeholder="http://localhost:11434" />
         </label>
         <div class="actions">
-          <button id="openai-test">Verbindung testen</button>
+          <button id="ollama-load-models">Installierte Modelle laden</button>
+          <button id="ai-test">KI testen</button>
         </div>
+
+        <div id="cred-sections"></div>
 
         <h2>Nach dem Meeting</h2>
         <label class="check">
           <input id="auto-summary" type="checkbox" /> Automatisch zusammenfassen (Überblick,
-          Kernpunkte, To-dos – nutzt den OpenAI-Key)
+          Kernpunkte, To-dos – mit der oben gewählten KI)
         </label>
         <label class="check">
           <input id="webhook-enabled" type="checkbox" /> An n8n-Webhook senden (Zusammenfassung,

@@ -51,8 +51,17 @@ describe('summary response parsing', () => {
     expect(parseActionItems('["Angebot senden"]')).toEqual(['Angebot senden']);
   });
 
-  test('rejects unexpected shapes instead of returning an empty summary', () => {
-    expect(() => parseActionItems('{"items": []}')).toThrow('unerwartetes Antwortformat');
+  test('tolerates other keys and object items from smaller models', () => {
+    expect(
+      parseActionItems('{"action_items": [{"task": "Angebot senden"}, "Budget klären"]}'),
+    ).toEqual(['Angebot senden', 'Budget klären']);
+    expect(
+      parseKeyPoints('{"topics": [{"topic": "Lieferung", "points": [{"text": "Freitag"}]}]}'),
+    ).toEqual([{ topic: 'Lieferung', points: ['Freitag'] }]);
+  });
+
+  test('rejects answers without any list instead of returning an empty summary', () => {
+    expect(() => parseActionItems('{"note": "keine"}')).toThrow('unerwartetes Antwortformat');
     expect(() => parseKeyPoints('kein json')).toThrow();
   });
 });

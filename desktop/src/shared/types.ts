@@ -1,4 +1,14 @@
 // Gemeinsame Typen für Main-Prozess, Preload und Renderer der Desktop-App.
+import type {
+  CatalogProduct,
+  CatalogShop,
+  CredKey,
+  ParsedFields,
+  PreviewData,
+  TargetSystem,
+  Transcript,
+} from '../../../src/lib/types';
+import type { LlmProvider } from '../../../src/lib/llm';
 
 export type Channel = 'mic' | 'system';
 export type EngineId = 'local' | 'openai';
@@ -12,17 +22,22 @@ export type Settings = {
   captureMic: boolean;
   captureSystem: boolean;
   captureEnabled: boolean;
-  // Nach Meeting-Ende automatisch zusammenfassen (OpenAI-Chat, braucht den OpenAI-Key).
+  // KI für Zusammenfassung und Bestelldaten-Extraktion (Transkription ist separat: engine).
+  aiProvider: LlmProvider;
+  aiModel: string; // leer = Standardmodell des Anbieters
+  ollamaUrl: string;
+  // Nach Meeting-Ende automatisch zusammenfassen.
   autoSummary: boolean;
   // Optional: fertiges Meeting an einen n8n-Webhook (oder jede andere URL) senden.
   webhookEnabled: boolean;
   webhookUrl: string;
 };
 
-export type PublicSettings = Settings & { hasOpenaiKey: boolean };
+export type SettingsPatch = Partial<Settings>;
 
-// openaiKey: '' löscht den gespeicherten Key.
-export type SettingsPatch = Partial<Settings> & { openaiKey?: string };
+// Zugangsdaten: alle Integrationen der Mobil-App + OpenRouter-Key (nur Desktop).
+export type DesktopCredKey = CredKey | 'openrouterKey';
+export type Creds = Record<DesktopCredKey, string>;
 
 // 16 kHz mono PCM; Zeitstempel in Epoch-Millisekunden; voicedMs = Anteil mit Sprache.
 export type AudioChunk = {
@@ -103,15 +118,24 @@ export const DEFAULT_SETTINGS: Settings = {
   captureMic: true,
   captureSystem: true,
   captureEnabled: false,
+  aiProvider: 'openai',
+  aiModel: '',
+  ollamaUrl: 'http://localhost:11434',
   autoSummary: true,
   webhookEnabled: false,
   webhookUrl: '',
 };
 
+// Verbindungstests in den Einstellungen.
+export type IntegrationTest = 'openai' | 'ai' | 'shopware' | 'shopify' | 'tiktok_shop' | 'hubspot';
+
 export const IPC = {
   settingsGet: 'settings:get',
   settingsSave: 'settings:save',
-  openaiTest: 'openai:test',
+  credsGet: 'creds:get',
+  credsSave: 'creds:save',
+  integrationTest: 'integration:test',
+  ollamaModels: 'ai:ollama-models',
   modelStatus: 'model:status',
   modelDownload: 'model:download',
   modelProgress: 'model:progress',
@@ -131,13 +155,33 @@ export const IPC = {
   sessionsSendWebhook: 'sessions:send-webhook',
   sessionUpdated: 'session:updated',
   webhookTest: 'webhook:test',
+  catalogSync: 'catalog:sync',
+  catalogCounts: 'catalog:counts',
+  catalogSearch: 'catalog:search',
+  shopwareSyncIds: 'shopware:sync-ids',
+  orderFromAudio: 'order:from-audio',
+  orderFromText: 'order:from-text',
+  ordersList: 'orders:list',
+  ordersUpdateFields: 'orders:update-fields',
+  ordersDelete: 'orders:delete',
+  ordersDeleteAll: 'orders:delete-all',
+  ordersMarkSent: 'orders:mark-sent',
+  orderPreview: 'order:preview',
+  orderConfirm: 'order:confirm',
+  orderSheetsPush: 'order:sheets-push',
+  saveCsv: 'file:save-csv',
+  copyText: 'clipboard:copy',
+  openExternal: 'shell:open-external',
 } as const;
 
 // API, die das Preload-Skript als window.vd bereitstellt.
 export type VdApi = {
-  getSettings(): Promise<PublicSettings>;
-  saveSettings(patch: SettingsPatch): Promise<PublicSettings>;
-  testOpenAI(): Promise<void>;
+  getSettings(): Promise<Settings>;
+  saveSettings(patch: SettingsPatch): Promise<Settings>;
+  getCreds(): Promise<Creds>;
+  saveCreds(patch: Partial<Creds>): Promise<Creds>;
+  testIntegration(kind: IntegrationTest): Promise<void>;
+  listOllamaModels(url: string): Promise<string[]>;
   modelStatus(): Promise<Record<LocalModel, boolean>>;
   downloadModel(model: LocalModel): Promise<void>;
   onModelProgress(cb: (e: ModelProgressEvent) => void): () => void;
@@ -157,4 +201,28 @@ export type VdApi = {
   sendSessionWebhook(id: string): Promise<WebhookResult>;
   testWebhook(url: string): Promise<WebhookResult>;
   onSessionUpdated(cb: (e: { sessionId: string }) => void): () => void;
+  // Bestellungen (Funktionen der Mobil-App)
+  syncCatalog(shop: CatalogShop): Promise<number>;
+  catalogCounts(): Promise<Record<CatalogShop, number>>;
+  searchCatalog(shop: CatalogShop, query: string, limit: number): Promise<CatalogProduct[]>;
+  syncShopwareIds(): Promise<string>;
+  orderFromAudio(pcm: Float32Array): Promise<Transcript>;
+  orderFromText(text: string): Promise<Transcript>;
+  listOrders(): Promise<Transcript[]>;
+  updateOrderFields(id: string, fields: ParsedFields): Promise<void>;
+  deleteOrder(id: string): Promise<void>;
+  deleteAllOrders(): Promise<void>;
+  markOrderSent(id: string, target: TargetSystem, info: string): Promise<void>;
+  previewOrder(target: TargetSystem, fields: ParsedFields): Promise<PreviewData>;
+  // Legt die Bestellung bzw. HubSpot-Daten an; liefert die Erfolgsmeldung.
+  confirmOrder(
+    target: TargetSystem,
+    fields: ParsedFields,
+    preview: PreviewData,
+    transcriptId: string | null,
+  ): Promise<string>;
+  pushOrderToSheets(fields: ParsedFields, transcriptId: string | null): Promise<string>;
+  saveCsv(csv: string): Promise<boolean>;
+  copyText(text: string): Promise<void>;
+  openExternal(url: string): Promise<void>;
 };

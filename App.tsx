@@ -48,14 +48,16 @@ import {
 import SettingsScreen from './src/screens/SettingsScreen';
 import TranscriptsScreen from './src/screens/TranscriptsScreen';
 import { getCred } from './src/lib/credentials';
-import { transcribeAudio, extractFields } from './src/lib/openai';
+import { transcribeAudio } from './src/lib/openai';
+import { extractFields } from './src/lib/extract';
 import { shopwarePreview, shopwareConfirmOrder, parseShopwareIds } from './src/lib/shopware';
 import { validateForTarget } from './src/lib/validate';
 import { shopifyPreview, shopifyConfirmOrder } from './src/lib/shopify';
 import { tiktokPreview, tiktokConfirmOrder } from './src/lib/tiktok';
 import { hubspotPreview, hubspotConfirm } from './src/lib/hubspot';
 import { buildCsv, buildEmailText, buildSheetsRow, pushToGoogleSheets } from './src/lib/localTargets';
-import { searchCatalog } from './src/lib/catalog';
+import { searchCatalog, setCatalogBackend } from './src/lib/catalog';
+import { createSqliteCatalog } from './src/lib/catalogSqlite';
 import { saveTranscript, markTranscriptSent, updateTranscriptFields } from './src/lib/transcripts';
 import {
   ParsedFields,
@@ -81,6 +83,9 @@ const TARGETS: { key: TargetSystem; label: string }[] = [
 ];
 
 const WEB_BLOCKED_TARGETS: TargetSystem[] = ['shopware', 'shopify', 'tiktok_shop', 'hubspot'];
+
+// Artikel-Katalog: auf iOS/Android in SQLite, im Web nur im Speicher (keine Shop-Ziele wegen CORS).
+if (Platform.OS !== 'web') setCatalogBackend(createSqliteCatalog());
 
 // Maximale Aufnahmedauer (5 Minuten) – danach automatischer Stopp.
 const MAX_RECORDING_MS = 5 * 60 * 1000;
@@ -274,7 +279,7 @@ export default function App() {
       const text = await transcribeAudio(uri, openaiKey);
 
       setUploadMessage('Extrahiere Bestelldaten (GPT)…');
-      const fields = await extractFields(text, openaiKey);
+      const fields = await extractFields(text, { provider: 'openai', apiKey: openaiKey, model: '' });
 
       const transcript = await saveTranscript(text, fields);
       setCurrentTranscriptId(transcript.id);

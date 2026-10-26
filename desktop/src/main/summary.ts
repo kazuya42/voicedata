@@ -1,13 +1,12 @@
 // Zusammenfassung nach dem Meeting: Kurzüberblick, Kernpunkte nach Thema, To-dos.
-// Prompts übernommen aus call.md (summary-generator.service.ts); statt VideoDB direkt OpenAI-Chat
-// mit dem vorhandenen OpenAI-Key. Drei Aufrufe parallel wie im Original.
-import { fetchWithRetry, parseApiError } from '../../../src/lib/http';
+// Prompts übernommen aus call.md (summary-generator.service.ts); ausgeführt mit dem in den
+// Einstellungen gewählten KI-Anbieter (OpenAI, OpenRouter oder lokal per Ollama).
+// Drei Aufrufe parallel wie im Original.
+import type { LlmConfig } from '../../../src/lib/llm';
+import { chatCompletion, parseJsonContent } from '../../../src/lib/llm';
 import type { KeyPoint, MeetingSummary, Session } from '../shared/types';
 import { SPEAKER_LABEL } from '../shared/types';
 import { formatClock } from '../shared/format';
-
-const CHAT_URL = 'https://api.openai.com/v1/chat/completions';
-const MODEL = 'gpt-4o-mini';
 
 const LANGUAGE_RULE = `- Write in the same language as the transcript (German transcript → German output).`;
 
@@ -78,66 +77,53 @@ Transcript:
 ${lines.join('\n')}`;
 }
 
-async function chat(apiKey: string, system: string, user: string, json: boolean): Promise<string> {
-  // Lesender Aufruf ohne Seiteneffekt → ein Retry ist unkritisch.
-  const res = await fetchWithRetry(
-    CHAT_URL,
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.2,
-        ...(json ? { response_format: { type: 'json_object' } } : {}),
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-      }),
-    },
-    { timeoutMs: 90_000, retries: 1 },
-  );
-  if (!res.ok) throw await parseApiError(res, 'OpenAI Zusammenfassung');
-  const content = (await res.json())?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string' || !content.trim()) {
-    throw new Error('OpenAI Zusammenfassung: leere Antwort');
-  }
-  return content.trim();
+// Kleinere/lokale Modelle halten das Format nicht immer exakt ein (anderer Schlüssel, Objekte statt
+// Strings). Akzeptiert: das Array selbst, den erwarteten Schlüssel oder das erste Array im Objekt.
+function pickArray(parsed: unknown, key: string): unknown[] | null {
+  if (Array.isArray(parsed)) return parsed;
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
+  if (Array.isArray(obj[key])) return obj[key];
+  return Object.values(obj).find(Array.isArray) ?? null;
 }
 
-// Das Modell liefert gelegentlich Markdown-Fences um das JSON.
-function parseJson(content: string): unknown {
-  return JSON.parse(content.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, ''));
+// String direkt, sonst der erste Text-Wert eines Objekts (z. B. {"task": "…"}).
+function itemText(item: unknown): string {
+  if (typeof item === 'string') return item.trim();
+  if (item && typeof item === 'object') {
+    const value = Object.values(item).find((v) => typeof v === 'string');
+    return typeof value === 'string' ? value.trim() : '';
+  }
+  return '';
 }
 
 export function parseKeyPoints(content: string): KeyPoint[] {
-  const parsed = parseJson(content) as { key_points?: unknown } | unknown[];
-  const list = Array.isArray(parsed) ? parsed : parsed.key_points;
-  if (!Array.isArray(list)) throw new Error('Kernpunkte: unerwartetes Antwortformat');
-  return list.map((kp: { topic?: unknown; points?: unknown }) => ({
-    topic: typeof kp.topic === 'string' && kp.topic.trim() ? kp.topic.trim() : 'Diskussion',
-    points: Array.isArray(kp.points)
-      ? kp.points.filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
-      : [],
-  }));
+  const list = pickArray(parseJsonContent(content), 'key_points');
+  if (!list) throw new Error('Kernpunkte: unerwartetes Antwortformat');
+  return list.map((kp) => {
+    const obj = (kp && typeof kp === 'object' ? kp : {}) as { topic?: unknown; points?: unknown };
+    const topic =
+      typeof obj.topic === 'string' && obj.topic.trim() ? obj.topic.trim() : 'Diskussion';
+    const points = pickArray(obj.points ?? obj, 'points') ?? [];
+    return { topic, points: points.map(itemText).filter(Boolean) };
+  });
 }
 
 export function parseActionItems(content: string): string[] {
-  const parsed = parseJson(content) as { checklist?: unknown } | unknown[];
-  const list = Array.isArray(parsed) ? parsed : parsed.checklist;
-  if (!Array.isArray(list)) throw new Error('To-dos: unerwartetes Antwortformat');
-  return list.filter((i): i is string => typeof i === 'string' && i.trim().length > 0);
+  const list = pickArray(parseJsonContent(content), 'checklist');
+  if (!list) throw new Error('To-dos: unerwartetes Antwortformat');
+  return list.map(itemText).filter(Boolean);
 }
 
-export async function generateSummary(session: Session, apiKey: string): Promise<MeetingSummary> {
+export async function generateSummary(session: Session, llm: LlmConfig): Promise<MeetingSummary> {
   if (!session.segments.some((s) => s.status === 'ok')) {
     throw new Error('Kein Transkript zum Zusammenfassen vorhanden');
   }
   const user = buildUserPrompt(session);
   const [overview, keyPoints, actionItems] = await Promise.all([
-    chat(apiKey, OVERVIEW_PROMPT, user, false),
-    chat(apiKey, KEY_POINTS_PROMPT, user, true).then(parseKeyPoints),
-    chat(apiKey, ACTION_ITEMS_PROMPT, user, true).then(parseActionItems),
+    chatCompletion(llm, OVERVIEW_PROMPT, user, { json: false }),
+    chatCompletion(llm, KEY_POINTS_PROMPT, user, { json: true }).then(parseKeyPoints),
+    chatCompletion(llm, ACTION_ITEMS_PROMPT, user, { json: true }).then(parseActionItems),
   ]);
   return { overview, keyPoints, actionItems, generatedAt: Date.now() };
 }

@@ -1,66 +1,64 @@
 // Lokaler Artikel-Katalog: nach Shop-Verbindung werden alle Artikel (Nummer, Name, Preis, Steuersatz)
-// in SQLite gecacht und stehen für Autocomplete/Vorschau offline zur Verfügung.
-// Web: kein SQLite (und ohnehin keine Shop-Ziele wegen CORS) -> In-Memory-Fallback.
-import { Platform } from 'react-native';
+// lokal gecacht und stehen für Autocomplete/Vorschau offline zur Verfügung.
+// Plattformneutral: die Speicherung steckt in einem austauschbaren Backend –
+// Mobil (iOS/Android) registriert SQLite (catalogSqlite.ts), die Desktop-App eine JSON-Datei,
+// Web nutzt den In-Memory-Standard.
 import { CatalogProduct, CatalogShop } from './types';
 
-type Db = {
-  runSync: (sql: string, params?: any[]) => unknown;
-  getAllSync: <T>(sql: string, params?: any[]) => T[];
-  execSync: (sql: string) => void;
+export type CatalogBackend = {
+  replace(shop: CatalogShop, products: CatalogProduct[]): void;
+  count(shop: CatalogShop): number;
+  // Leere Suche: erste `limit` Artikel alphabetisch (für "Alle anzeigen").
+  // Sonst Treffer in Nummer oder Name; exakte Nummer zuerst, dann Nummern-Präfix, dann Name.
+  search(shop: CatalogShop, query: string, limit: number): CatalogProduct[];
+  findByNumber(shop: CatalogShop, number: string): CatalogProduct | null;
 };
 
-let db: Db | null = null;
-let memStore: CatalogProduct[] = [];
+// In-Memory-Backend; onChange erhält nach jeder Änderung den kompletten Bestand (zum Persistieren).
+export function createMemoryCatalog(
+  initial: CatalogProduct[] = [],
+  onChange?: (all: CatalogProduct[]) => void,
+): CatalogBackend {
+  let store = initial;
+  const ofShop = (shop: CatalogShop) => store.filter((p) => p.shop === shop);
+  return {
+    replace(shop, products) {
+      store = store.filter((p) => p.shop !== shop).concat(products);
+      onChange?.(store);
+    },
+    count: (shop) => ofShop(shop).length,
+    search(shop, query, limit) {
+      const items = ofShop(shop);
+      const q = query.trim().toLowerCase();
+      if (!q) return [...items].sort((a, b) => a.name.localeCompare(b.name)).slice(0, limit);
+      const rank = (p: CatalogProduct) => {
+        const n = p.number.toLowerCase();
+        return n === q ? 0 : n.startsWith(q) ? 1 : 2;
+      };
+      return items
+        .filter((p) => p.number.toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
+        .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
+        .slice(0, limit);
+    },
+    findByNumber(shop, number) {
+      const n = number.trim();
+      return (n && store.find((p) => p.shop === shop && p.number === n)) || null;
+    },
+  };
+}
 
-function getDb(): Db | null {
-  if (Platform.OS === 'web') return null;
-  if (!db) {
-    // Lazy require, damit der Web-Bundle das native Modul nicht laden muss
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const SQLite = require('expo-sqlite');
-    db = SQLite.openDatabaseSync('voicedata.db') as Db;
-    db.execSync(`
-      CREATE TABLE IF NOT EXISTS products (
-        shop TEXT NOT NULL,
-        externalId TEXT NOT NULL,
-        number TEXT NOT NULL,
-        name TEXT NOT NULL,
-        priceGross REAL NOT NULL DEFAULT 0,
-        taxRate REAL,
-        syncedAt TEXT NOT NULL,
-        PRIMARY KEY (shop, externalId)
-      );
-      CREATE INDEX IF NOT EXISTS idx_products_number ON products(shop, number);
-      CREATE INDEX IF NOT EXISTS idx_products_name ON products(shop, name);
-    `);
-  }
-  return db;
+let backend: CatalogBackend = createMemoryCatalog();
+
+export function setCatalogBackend(b: CatalogBackend): void {
+  backend = b;
 }
 
 export function replaceCatalog(shop: CatalogShop, products: CatalogProduct[]): void {
-  const d = getDb();
-  const now = new Date().toISOString();
-  if (!d) {
-    memStore = memStore.filter((p) => p.shop !== shop).concat(products);
-    return;
-  }
-  d.runSync('DELETE FROM products WHERE shop = ?', [shop]);
-  for (const p of products) {
-    d.runSync(
-      'INSERT OR REPLACE INTO products (shop, externalId, number, name, priceGross, taxRate, syncedAt) VALUES (?,?,?,?,?,?,?)',
-      [p.shop, p.externalId, p.number, p.name, p.priceGross, p.taxRate, now],
-    );
-  }
+  backend.replace(shop, products);
 }
 
 export function catalogCount(shop: CatalogShop): number {
-  const d = getDb();
-  if (!d) return memStore.filter((p) => p.shop === shop).length;
-  const rows = d.getAllSync<{ c: number }>('SELECT COUNT(*) AS c FROM products WHERE shop = ?', [
-    shop,
-  ]);
-  return rows[0]?.c ?? 0;
+  return backend.count(shop);
 }
 
 export function searchCatalog(
@@ -68,47 +66,9 @@ export function searchCatalog(
   query: string,
   limit: number = 8,
 ): CatalogProduct[] {
-  const q = (query || '').trim();
-  const d = getDb();
-  if (!d) {
-    if (!q) return memStore.filter((p) => p.shop === shop).slice(0, limit);
-    const lq = q.toLowerCase();
-    return memStore
-      .filter(
-        (p) =>
-          p.shop === shop &&
-          (p.number.toLowerCase().includes(lq) || p.name.toLowerCase().includes(lq)),
-      )
-      .slice(0, limit);
-  }
-  if (!q) {
-    // Leere Suche: erste N Artikel alphabetisch zurückgeben (für "Alle anzeigen")
-    const rows = d.getAllSync<CatalogProduct>(
-      'SELECT shop, externalId, number, name, priceGross, taxRate FROM products WHERE shop = ? ORDER BY name LIMIT ?',
-      [shop, limit],
-    );
-    console.log(`[catalog] empty query, shop=${shop}, count=${rows.length}`);
-    return rows;
-  }
-  const rows = d.getAllSync<CatalogProduct>(
-    `SELECT shop, externalId, number, name, priceGross, taxRate FROM products
-     WHERE shop = ? AND (number LIKE ? OR name LIKE ?)
-     ORDER BY CASE WHEN number = ? THEN 0 WHEN number LIKE ? THEN 1 ELSE 2 END, name
-     LIMIT ?`,
-    [shop, `%${q}%`, `%${q}%`, q, `${q}%`, limit],
-  );
-  console.log(`[catalog] query="${q}", shop=${shop}, results=${rows.length}`);
-  return rows;
+  return backend.search(shop, query || '', limit);
 }
 
 export function findByNumber(shop: CatalogShop, number: string): CatalogProduct | null {
-  const n = (number || '').trim();
-  if (!n) return null;
-  const d = getDb();
-  if (!d) return memStore.find((p) => p.shop === shop && p.number === n) || null;
-  const rows = d.getAllSync<CatalogProduct>(
-    'SELECT shop, externalId, number, name, priceGross, taxRate FROM products WHERE shop = ? AND number = ? LIMIT 1',
-    [shop, n],
-  );
-  return rows[0] || null;
+  return backend.findByNumber(shop, number || '');
 }

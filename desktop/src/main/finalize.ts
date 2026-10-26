@@ -5,7 +5,8 @@ import { IPC } from '../shared/types';
 import type { WebhookResult } from '../shared/types';
 import type { TranscriptionQueue } from './queue';
 import type { SessionStore } from './sessions';
-import { getOpenaiKey, getSettings } from './settings';
+import { assertLlmReady } from '../../../src/lib/llm';
+import { getLlmConfig, getSettings } from './settings';
 import { generateSummary } from './summary';
 import { buildPayload, sendWebhook } from './webhook';
 
@@ -33,8 +34,15 @@ export class MeetingFinalizer {
     const words = session.segments
       .filter((s) => s.status === 'ok')
       .reduce((n, s) => n + s.text.split(/\s+/).filter(Boolean).length, 0);
-    if (settings.autoSummary && getOpenaiKey() && words >= MIN_WORDS_FOR_AUTO_SUMMARY) {
-      await this.summarize(sessionId).catch(() => {});
+    if (settings.autoSummary && words >= MIN_WORDS_FOR_AUTO_SUMMARY) {
+      // Ohne eingerichtete KI (Key/Modell) still überspringen; manuell bleibt es möglich.
+      let ready = true;
+      try {
+        assertLlmReady(getLlmConfig());
+      } catch {
+        ready = false;
+      }
+      if (ready) await this.summarize(sessionId).catch(() => {});
     }
     if (settings.webhookEnabled && settings.webhookUrl) {
       await this.sendWebhook(sessionId);
@@ -43,13 +51,12 @@ export class MeetingFinalizer {
 
   // Manuell (Button) oder automatisch; wirft bei Fehler, Fehlertext steht zusätzlich in der Session.
   async summarize(sessionId: string): Promise<void> {
-    const key = getOpenaiKey();
-    if (!key)
-      throw new Error('OpenAI-Key fehlt – für die Zusammenfassung wird der OpenAI-Key benötigt');
+    const llm = getLlmConfig();
+    assertLlmReady(llm);
     const session = this.store.get(sessionId);
     if (!session) throw new Error('Meeting nicht gefunden');
     try {
-      const summary = await generateSummary(session, key);
+      const summary = await generateSummary(session, llm);
       this.store.update(sessionId, (s) => {
         s.summary = summary;
         delete s.summaryError;

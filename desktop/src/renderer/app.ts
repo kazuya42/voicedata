@@ -1,64 +1,40 @@
 // Renderer-UI (Vanilla TS): Live-Transkript, Meeting-Archiv, Einstellungen.
+// Bestellung/Transkripte (Funktionen der Mobil-App) liegen in orders.ts, Zugangsdaten in credsForm.ts.
 import type {
   CaptureState,
   EngineId,
   Language,
   LocalModel,
-  PublicSettings,
   Segment,
   Session,
-  VdApi,
+  Settings,
 } from '../shared/types';
 import { SPEAKER_LABEL } from '../shared/types';
 import { formatClock } from '../shared/format';
 import { computeMetrics } from '../shared/metrics';
 import { CaptureController } from './capture';
-
-declare global {
-  interface Window {
-    vd: VdApi;
-  }
-}
-
-const vd = window.vd;
-
-const $ = <T extends HTMLElement = HTMLElement>(id: string) => {
-  const el = document.getElementById(id);
-  if (!el) throw new Error(`Element #${id} fehlt`);
-  return el as T;
-};
-
-// Electron verpackt Fehler aus ipcMain.handle als „Error invoking remote method …: Error: <msg>“.
-const errorMessage = (e: unknown) =>
-  (e instanceof Error ? e.message : String(e)).replace(
-    /^Error invoking remote method '[^']+': (Error: )?/,
-    '',
-  );
-
-let bannerTimer: number | undefined;
-function showBanner(message: string): void {
-  const banner = $('banner');
-  banner.textContent = message;
-  banner.classList.remove('hidden');
-  clearTimeout(bannerTimer);
-  bannerTimer = window.setTimeout(() => banner.classList.add('hidden'), 15_000);
-}
+import { collectAiSettings, collectCreds, initCredsForm, loadCredsForm } from './credsForm';
+import type { View } from './dom';
+import { $, VIEWS, el, errorMessage, showBanner, vd } from './dom';
+import { initOrders, openOrderFromText, renderOrdersList } from './orders';
 
 // ---------- Navigation ----------
-type View = 'live' | 'meetings' | 'settings';
 function showView(view: View): void {
   for (const btn of document.querySelectorAll<HTMLButtonElement>('nav button')) {
     btn.classList.toggle('active', btn.dataset.view === view);
   }
-  for (const v of ['live', 'meetings', 'settings'] as View[]) {
+  for (const v of VIEWS) {
     $(`view-${v}`).classList.toggle('hidden', v !== view);
   }
   if (view === 'meetings') void renderSessions();
+  if (view === 'orders') void renderOrdersList();
   if (view === 'settings') void loadSettingsForm();
 }
 for (const btn of document.querySelectorAll<HTMLButtonElement>('nav button')) {
   btn.addEventListener('click', () => showView(btn.dataset.view as View));
 }
+initOrders(showView);
+initCredsForm();
 
 // ---------- Transkript-Zeilen ----------
 function segmentRow(seg: Segment): HTMLElement {
@@ -232,17 +208,6 @@ async function openDetail(id: string): Promise<void> {
   list.replaceChildren(...session.segments.map(segmentRow));
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  text?: string,
-  className?: string,
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (text !== undefined) node.textContent = text;
-  if (className) node.className = className;
-  return node;
-}
-
 const percent = (ratio: number) => `${Math.round(ratio * 100)} %`;
 
 // Zusammenfassung, Gesprächsstatistik und Webhook-Status (aus call.md übernommene Auswertungen).
@@ -330,6 +295,31 @@ $('detail-summarize').addEventListener('click', async () => {
   }
 });
 
+// Meeting-Transkript → Bestelldaten (z. B. telefonische Bestellung als Meeting aufgenommen).
+$('detail-order').addEventListener('click', async () => {
+  if (!detailId) return;
+  const session = await vd.getSession(detailId);
+  const text = session?.segments
+    .filter((s) => s.status === 'ok')
+    .map((s) => `${SPEAKER_LABEL[s.channel]}: ${s.text}`)
+    .join('\n');
+  if (!text) {
+    showBanner('Dieses Meeting hat noch kein Transkript.');
+    return;
+  }
+  const btn = $<HTMLButtonElement>('detail-order');
+  btn.disabled = true;
+  btn.textContent = 'Extrahiere Bestelldaten…';
+  try {
+    await openOrderFromText(text);
+  } catch (e) {
+    showBanner(errorMessage(e));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Als Bestellung übernehmen';
+  }
+});
+
 $('detail-webhook').addEventListener('click', async () => {
   if (!detailId) return;
   try {
@@ -373,7 +363,7 @@ $('detail-delete').addEventListener('click', async () => {
 });
 
 // ---------- Einstellungen ----------
-let settings: PublicSettings;
+let settings: Settings;
 let downloading: LocalModel | null = null;
 
 async function renderModelState(): Promise<void> {
@@ -395,12 +385,10 @@ async function loadSettingsForm(): Promise<void> {
   $<HTMLSelectElement>('language').value = settings.language;
   $<HTMLInputElement>('capture-mic').checked = settings.captureMic;
   $<HTMLInputElement>('capture-system').checked = settings.captureSystem;
-  $<HTMLInputElement>('openai-key').value = '';
-  $('key-state').textContent = settings.hasOpenaiKey ? '(gespeichert)' : '';
   $<HTMLInputElement>('auto-summary').checked = settings.autoSummary;
   $<HTMLInputElement>('webhook-enabled').checked = settings.webhookEnabled;
   $<HTMLInputElement>('webhook-url').value = settings.webhookUrl;
-  await renderModelState();
+  await Promise.all([renderModelState(), loadCredsForm(settings)]);
 }
 
 $('local-model').addEventListener('change', () => void renderModelState());
@@ -429,7 +417,6 @@ $('settings-save').addEventListener('click', async () => {
   const engine = document.querySelector<HTMLInputElement>('input[name="engine"]:checked')?.value as
     | EngineId
     | undefined;
-  const key = $<HTMLInputElement>('openai-key').value.trim();
   const captureMic = $<HTMLInputElement>('capture-mic').checked;
   const captureSystem = $<HTMLInputElement>('capture-system').checked;
   const sourcesChanged =
@@ -441,11 +428,13 @@ $('settings-save').addEventListener('click', async () => {
       language: $<HTMLSelectElement>('language').value as Language,
       captureMic,
       captureSystem,
+      ...collectAiSettings(),
       autoSummary: $<HTMLInputElement>('auto-summary').checked,
       webhookEnabled: $<HTMLInputElement>('webhook-enabled').checked,
       webhookUrl: $<HTMLInputElement>('webhook-url').value.trim(),
-      ...(key ? { openaiKey: key } : {}),
     });
+    // Zugangsdaten mitspeichern (wie „Alles speichern“ in der Mobil-App).
+    await vd.saveCreds(collectCreds());
     // Quellen-Änderung während laufender Aufnahme sofort anwenden.
     if (captureEnabled && sourcesChanged) {
       await vd.setCapture(false);
@@ -453,15 +442,6 @@ $('settings-save').addEventListener('click', async () => {
     }
     await loadSettingsForm();
     showBanner('Einstellungen gespeichert.');
-  } catch (e) {
-    showBanner(errorMessage(e));
-  }
-});
-
-$('openai-test').addEventListener('click', async () => {
-  try {
-    await vd.testOpenAI();
-    showBanner('OpenAI-Verbindung erfolgreich.');
   } catch (e) {
     showBanner(errorMessage(e));
   }

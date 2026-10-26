@@ -112,6 +112,39 @@ export type CatalogProduct = {
   taxRate: number | null;
 };
 
+// Zugangsdaten aller Integrationen (Mobil: SecureStore, Desktop: verschlüsselte Datei).
+export const CRED_KEYS = [
+  'openaiKey',
+  'shopwareUrl',
+  'shopwareClientId',
+  'shopwareClientSecret',
+  'shopwareIds',
+  'shopwareBasicUser',
+  'shopwareBasicPass',
+  'shopifyDomain',
+  'shopifyToken',
+  'tiktokAppKey',
+  'tiktokAppSecret',
+  'tiktokAccessToken',
+  'tiktokShopCipher',
+  'hubspotToken',
+  'googleSheetId',
+  'googleScriptUrl',
+] as const;
+
+export type CredKey = (typeof CRED_KEYS)[number];
+
+// Anzeigenamen der Zielsysteme (Auswahl, Transkript-Liste, Statusmeldungen).
+export const TARGET_LABELS: Record<TargetSystem, string> = {
+  shopware: 'Shopware',
+  shopify: 'Shopify',
+  tiktok_shop: 'TikTok Shop',
+  hubspot: 'HubSpot',
+  email: 'E-Mail',
+  google_sheets: 'Google Sheets',
+  csv: 'CSV',
+};
+
 // Hilfsfunktion: abweichende Lieferanschrift erkannt?
 export const deliveryFromFields = (f: ParsedFields): PreviewDelivery => {
   const differs = !!(f.deliveryName || f.deliveryStreet || f.deliveryZip || f.deliveryCity);

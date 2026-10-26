@@ -1,13 +1,14 @@
-// Einstellungen (JSON in userData) + OpenAI-Key (mit safeStorage verschlüsselt, separate Datei).
+// Einstellungen (JSON in userData). Zugangsdaten liegen getrennt und verschlüsselt (credentials.ts).
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, safeStorage } from 'electron';
-import type { PublicSettings, Settings, SettingsPatch } from '../shared/types';
+import { app } from 'electron';
+import type { LlmConfig } from '../../../src/lib/llm';
+import type { Settings, SettingsPatch } from '../shared/types';
 import { DEFAULT_SETTINGS } from '../shared/types';
+import { getCreds } from './credentials';
 import { writeFileAtomic } from './fsutil';
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
-const keyFile = () => path.join(app.getPath('userData'), 'openai-key.bin');
 
 export function getSettings(): Settings {
   try {
@@ -18,33 +19,21 @@ export function getSettings(): Settings {
   }
 }
 
-export function getOpenaiKey(): string {
-  try {
-    if (!safeStorage.isEncryptionAvailable()) return '';
-    return safeStorage.decryptString(fs.readFileSync(keyFile()));
-  } catch {
-    return '';
-  }
-}
-
-export function getPublicSettings(): PublicSettings {
-  return { ...getSettings(), hasOpenaiKey: getOpenaiKey() !== '' };
-}
-
-export function saveSettings(patch: SettingsPatch): PublicSettings {
-  const { openaiKey, ...rest } = patch;
+export function saveSettings(patch: SettingsPatch): Settings {
   fs.mkdirSync(app.getPath('userData'), { recursive: true });
-  writeFileAtomic(settingsFile(), JSON.stringify({ ...getSettings(), ...rest }, null, 2));
-  if (openaiKey !== undefined) {
-    const key = openaiKey.trim();
-    if (key === '') {
-      fs.rmSync(keyFile(), { force: true });
-    } else {
-      if (!safeStorage.isEncryptionAvailable()) {
-        throw new Error('Sichere Ablage nicht verfügbar – Key kann nicht gespeichert werden.');
-      }
-      writeFileAtomic(keyFile(), safeStorage.encryptString(key));
-    }
-  }
-  return getPublicSettings();
+  const next = { ...getSettings(), ...patch };
+  writeFileAtomic(settingsFile(), JSON.stringify(next, null, 2));
+  return next;
+}
+
+// KI-Anbieter für Zusammenfassung und Bestelldaten-Extraktion aus Einstellungen + Zugangsdaten.
+export function getLlmConfig(): LlmConfig {
+  const s = getSettings();
+  const creds = getCreds();
+  return {
+    provider: s.aiProvider,
+    apiKey: s.aiProvider === 'openrouter' ? creds.openrouterKey : creds.openaiKey,
+    model: s.aiModel,
+    ollamaUrl: s.ollamaUrl,
+  };
 }

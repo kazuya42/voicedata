@@ -11,5 +11,19 @@
     "esModuleInterop": true,
     "isolatedModules": true
   },
-  "include": ["src", "test", "../src/lib/http.ts"]
+  "include": [
+    "src",
+    "test",
+    "../src/lib/http.ts",
+    "../src/lib/types.ts",
+    "../src/lib/llm.ts",
+    "../src/lib/extract.ts",
+    "../src/lib/catalog.ts",
+    "../src/lib/validate.ts",
+    "../src/lib/localTargets.ts",
+    "../src/lib/shopware.ts",
+    "../src/lib/shopify.ts",
+    "../src/lib/tiktok.ts",
+    "../src/lib/hubspot.ts"
+  ]
 }

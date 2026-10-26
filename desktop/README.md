@@ -10,9 +10,8 @@ Closing the window keeps it running in the menu bar (`VD` / `● VD` while recor
 A meeting ends after 5 minutes without speech or when recording is switched off. Then:
 
 - **Summary** (_Einstellungen › Nach dem Meeting_, on by default): overview, key points by topic
-  and to-dos via OpenAI `gpt-4o-mini`, using the OpenAI key from Settings even when transcription
-  runs locally. Meetings with fewer than 30 words are skipped; any meeting can be summarized
-  manually from its detail view.
+  and to-dos with the configured AI (see below). Meetings with fewer than 30 words are skipped;
+  any meeting can be summarized manually from its detail view.
 - **Conversation statistics** (no AI, always shown): talk share, speaking time, words, pace,
   questions and longest monologue for `Ich` vs `Teilnehmer`.
 - **n8n webhook** (optional): `POST` JSON to the configured URL with `event`
@@ -22,6 +21,34 @@ A meeting ends after 5 minutes without speech or when recording is switched off.
 
 Summary prompts and statistics are adapted from
 [call.md](https://github.com/video-db/call.md) without its VideoDB dependency.
+
+## Orders (features of the VoiceData mobile app)
+
+- **Bestellung:** dictate an order (max. 5 min) → transcription (local Whisper or OpenAI) → the AI
+  extracts customer, address, product, quantity and an optional delivery address → review/edit with
+  article autocomplete and search from the local catalog → preview for the target system →
+  confirm. Targets: Shopware, Shopify, TikTok Shop (orders), HubSpot (contact + deal),
+  Google Sheets (Apps Script push or copy row + open sheet), CSV (save/copy), E-Mail (draft in
+  the mail app). Meetings can be turned into an order via _Als Bestellung übernehmen_.
+- **Transkripte:** all dictated orders with status draft/sent; click to reopen, delete.
+- **Einstellungen:** credentials for all integrations (encrypted in the macOS keychain via
+  `safeStorage`), connection tests, article sync per shop, Shopware instance-ID sync.
+
+The integrations use the same modules as the mobile app (`../src/lib`). The article catalog is
+stored as `catalog.json`, orders as `orders.json` in the app data folder.
+
+## AI provider
+
+Summaries and order extraction use the provider chosen in _Einstellungen › KI_:
+
+| Provider | Key | Default model |
+|---|---|---|
+| OpenAI | OpenAI API key | `gpt-4o-mini` |
+| OpenRouter | OpenRouter API key | `openai/gpt-4o-mini` (any OpenRouter model id) |
+| Ollama | none – runs locally (`http://localhost:11434`) | pick an installed model (_Installierte Modelle laden_) |
+
+Transcription is separate (local Whisper or OpenAI `gpt-transcribe`). With local Whisper + Ollama
+nothing leaves the Mac. Local models are slower (first call loads the model).
 
 ## Requirements
 

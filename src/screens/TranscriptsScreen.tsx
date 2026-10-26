@@ -3,16 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CheckCircle2, FileText, Trash2 } from 'lucide-react-native';
 import { deleteAllTranscripts, deleteTranscript, listTranscripts } from '../lib/transcripts';
-import { Transcript } from '../lib/types';
-
-const TARGET_LABELS: Record<string, string> = {
-  shopware: 'Shopware',
-  shopify: 'Shopify',
-  hubspot: 'HubSpot',
-  email: 'E-Mail',
-  google_sheets: 'Google Sheets',
-  csv: 'CSV',
-};
+import { TARGET_LABELS, Transcript } from '../lib/types';
 
 export default function TranscriptsScreen(props: {
   refreshKey: number;
@@ -91,7 +82,7 @@ export default function TranscriptsScreen(props: {
                   <View style={styles.badgeSent}>
                     <CheckCircle2 size={11} color="#10B981" style={{ marginRight: 4 }} />
                     <Text style={styles.badgeSentText}>
-                      {TARGET_LABELS[item.sentTarget || ''] || 'Gesendet'}
+                      {item.sentTarget ? TARGET_LABELS[item.sentTarget] : 'Gesendet'}
                     </Text>
                   </View>
                 ) : (
